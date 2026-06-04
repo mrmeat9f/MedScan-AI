@@ -1,0 +1,8 @@
+{
+  "name": " МедСкан делаем лк",
+  "description": "Приложение для сканирования маркировок Честный Знак, контроля сроков годности лекарств и поиска аналогов.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
