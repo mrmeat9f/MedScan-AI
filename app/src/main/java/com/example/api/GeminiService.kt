@@ -101,6 +101,130 @@ object RetrofitClient {
     }
 }
 
+// --- DeepSeek Data Classes ---
+
+@JsonClass(generateAdapter = true)
+data class DeepSeekRequest(
+    val model: String = "deepseek-chat",
+    val messages: List<DeepSeekMessage>,
+    @Json(name = "response_format") val responseFormat: DeepSeekResponseFormat? = null,
+    val temperature: Float? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class DeepSeekMessage(
+    val role: String, // "system", "user", "assistant"
+    val content: String
+)
+
+@JsonClass(generateAdapter = true)
+data class DeepSeekResponseFormat(
+    val type: String // "json_object"
+)
+
+@JsonClass(generateAdapter = true)
+data class DeepSeekResponse(
+    val choices: List<DeepSeekChoice> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class DeepSeekChoice(
+    val message: DeepSeekMessage? = null
+)
+
+interface DeepSeekApiService {
+    @POST("chat/completions")
+    suspend fun chatCompletions(
+        @retrofit2.http.Header("Authorization") authorization: String,
+        @Body request: DeepSeekRequest
+    ): DeepSeekResponse
+}
+
+object DeepSeekRetrofitClient {
+    private const val BASE_URL = "https://api.deepseek.com/"
+
+    private val moshi: Moshi = Moshi.Builder()
+        .addLast(KotlinJsonAdapterFactory())
+        .build()
+
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
+    val service: DeepSeekApiService by lazy {
+        val retrofit = Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+        retrofit.create(DeepSeekApiService::class.java)
+    }
+}
+
+// --- Grok (xAI) Data Classes ---
+
+@JsonClass(generateAdapter = true)
+data class GrokRequest(
+    val model: String = "grok-2-1212",
+    val messages: List<GrokMessage>,
+    @Json(name = "response_format") val responseFormat: GrokResponseFormat? = null,
+    val temperature: Float? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GrokMessage(
+    val role: String, // "system", "user"
+    val content: String
+)
+
+@JsonClass(generateAdapter = true)
+data class GrokResponseFormat(
+    val type: String // "json_object"
+)
+
+@JsonClass(generateAdapter = true)
+data class GrokResponse(
+    val choices: List<GrokChoice> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class GrokChoice(
+    val message: GrokMessage? = null
+)
+
+interface GrokApiService {
+    @POST("v1/chat/completions")
+    suspend fun chatCompletions(
+        @retrofit2.http.Header("Authorization") authorization: String,
+        @Body request: GrokRequest
+    ): GrokResponse
+}
+
+object GrokRetrofitClient {
+    private const val BASE_URL = "https://api.x.ai/"
+
+    private val moshi: Moshi = Moshi.Builder()
+        .addLast(KotlinJsonAdapterFactory())
+        .build()
+
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
+    val service: GrokApiService by lazy {
+        val retrofit = Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+        retrofit.create(GrokApiService::class.java)
+    }
+}
+
 // --- Parsed Data Classes ---
 
 @JsonClass(generateAdapter = true)
@@ -213,6 +337,66 @@ object GeminiService {
             false
         }
 
+    val isDeepSeekApiKeyAvailable: Boolean
+        get() = try {
+            BuildConfig.DEEPSEEK_API_KEY.isNotEmpty() && BuildConfig.DEEPSEEK_API_KEY != "MY_DEEPSEEK_API_KEY"
+        } catch (e: Exception) {
+            false
+        }
+
+    val isGrokApiKeyAvailable: Boolean
+        get() = try {
+            BuildConfig.GROK_API_KEY.isNotEmpty() && BuildConfig.GROK_API_KEY != "MY_GROK_API_KEY"
+        } catch (e: Exception) {
+            false
+        }
+
+    suspend fun callDeepSeekChat(prompt: String, systemInstruction: String? = null): String {
+        if (!isDeepSeekApiKeyAvailable) {
+            throw Exception("DeepSeek API-ключ не настроен. Пожалуйста, укажите рабочий ключ в Secrets панели AI Studio.")
+        }
+        val system = systemInstruction ?: "You are a professional assistant. You must return JSON output matching the requested schema."
+        val messages = listOf(
+            DeepSeekMessage(role = "system", content = system),
+            DeepSeekMessage(role = "user", content = prompt)
+        )
+        val request = DeepSeekRequest(
+            model = "deepseek-chat",
+            messages = messages,
+            responseFormat = DeepSeekResponseFormat(type = "json_object"),
+            temperature = 0.2f
+        )
+        val authorization = "Bearer ${BuildConfig.DEEPSEEK_API_KEY}"
+        
+        val response = retryOnTransientErrors {
+            DeepSeekRetrofitClient.service.chatCompletions(authorization, request)
+        }
+        return response.choices.firstOrNull()?.message?.content ?: throw Exception("DeepSeek вернул пустой ответ.")
+    }
+
+    suspend fun callGrokChat(prompt: String, systemInstruction: String? = null): String {
+        if (!isGrokApiKeyAvailable) {
+            throw Exception("Grok API-ключ не настроен. Пожалуйста, укажите рабочий ключ в Secrets панели AI Studio.")
+        }
+        val system = systemInstruction ?: "You are a professional assistant. You must return JSON output matching the requested schema."
+        val messages = listOf(
+            GrokMessage(role = "system", content = system),
+            GrokMessage(role = "user", content = prompt)
+        )
+        val request = GrokRequest(
+            model = "grok-2-1212",
+            messages = messages,
+            responseFormat = GrokResponseFormat(type = "json_object"),
+            temperature = 0.2f
+        )
+        val authorization = "Bearer ${BuildConfig.GROK_API_KEY}"
+        
+        val response = retryOnTransientErrors {
+            GrokRetrofitClient.service.chatCompletions(authorization, request)
+        }
+        return response.choices.firstOrNull()?.message?.content ?: throw Exception("Grok вернул пустой ответ.")
+    }
+
     /**
      * Parses medicine упаковка (photo) using multimodal Gemini 3.5 Flash or offline fallback.
      */
@@ -302,6 +486,18 @@ object GeminiService {
                 throw Exception("Нейросеть вернула пустой ответ.")
             }
         } catch (e: Exception) {
+            val isRateLimitOrServiceUnavailable = (e is retrofit2.HttpException && (e.code() == 429 || e.code() == 503)) ||
+                    (e.localizedMessage?.contains("429") == true || e.localizedMessage?.contains("503") == true)
+            
+            if (isRateLimitOrServiceUnavailable) {
+                Log.w(TAG, "Gemini parsing photo error 429/503. Falling back to offline emulator data...", e)
+                try {
+                    return@withContext parseOfflinePhoto(getNextFallbackName())
+                } catch (fallbackEx: Exception) {
+                    Log.e(TAG, "Failed fallback to offline data in photo parse", fallbackEx)
+                }
+            }
+
             Log.e(TAG, "Error photo parsing via Gemini", e)
             val friendlyMsg = when {
                 e is retrofit2.HttpException && e.code() == 429 -> 
@@ -383,6 +579,37 @@ object GeminiService {
                 getLocalSimulatedAnalogs(medicineName)
             }
         } catch (e: Exception) {
+            val isRateLimitOrServiceUnavailable = (e is retrofit2.HttpException && (e.code() == 429 || e.code() == 503)) ||
+                    (e.localizedMessage?.contains("429") == true || e.localizedMessage?.contains("503") == true)
+            if (isRateLimitOrServiceUnavailable) {
+                // 1. Try Grok first
+                if (isGrokApiKeyAvailable) {
+                    Log.w(TAG, "Gemini code 429/503. Falling back to Grok for searchAnalogs", e)
+                    try {
+                        val systemPrompt = "You are a professional medical expert. Return response strictly in JSON format representing the requested schema."
+                        val grokJsonText = callGrokChat(prompt, systemInstruction = systemPrompt)
+                        val adapter = moshi.adapter(AnalogRecommendResult::class.java)
+                        val result = adapter.fromJson(grokJsonText)
+                        if (result != null) return@withContext result
+                    } catch (grokEx: Exception) {
+                        Log.e(TAG, "Grok fallback failed for searchAnalogs, will try DeepSeek next", grokEx)
+                    }
+                }
+                
+                // 2. Try DeepSeek second
+                if (isDeepSeekApiKeyAvailable) {
+                    Log.w(TAG, "Falling back to DeepSeek for searchAnalogs", e)
+                    try {
+                        val systemPrompt = "You are a professional medical expert. Return response strictly in JSON format representing the requested schema."
+                        val dsJsonText = callDeepSeekChat(prompt, systemInstruction = systemPrompt)
+                        val adapter = moshi.adapter(AnalogRecommendResult::class.java)
+                        val result = adapter.fromJson(dsJsonText)
+                        if (result != null) return@withContext result
+                    } catch (dsEx: Exception) {
+                        Log.e(TAG, "DeepSeek fallback failed for searchAnalogs", dsEx)
+                    }
+                }
+            }
             Log.e(TAG, "Error looking up analogs", e)
             getLocalSimulatedAnalogs(medicineName)
         }
@@ -687,6 +914,37 @@ object GeminiService {
                 getLocalSimulatedInstruction(medicineName)
             }
         } catch (e: Exception) {
+            val isRateLimitOrServiceUnavailable = (e is retrofit2.HttpException && (e.code() == 429 || e.code() == 503)) ||
+                    (e.localizedMessage?.contains("429") == true || e.localizedMessage?.contains("503") == true)
+            if (isRateLimitOrServiceUnavailable) {
+                // 1. Try Grok first
+                if (isGrokApiKeyAvailable) {
+                    Log.w(TAG, "Gemini code 429/503. Falling back to Grok for fetchMedicineInstruction", e)
+                    try {
+                        val systemPrompt = "You are an expert Russian doctor and clinical pharmacologist. Return patient instruction strictly in JSON format matching the schema."
+                        val grokJsonText = callGrokChat(prompt, systemInstruction = systemPrompt)
+                        val adapter = moshi.adapter(DrugInstruction::class.java)
+                        val result = adapter.fromJson(grokJsonText)
+                        if (result != null) return@withContext result
+                    } catch (grokEx: Exception) {
+                        Log.e(TAG, "Grok fallback failed for fetchMedicineInstruction, trying DeepSeek next", grokEx)
+                    }
+                }
+                
+                // 2. Try DeepSeek second
+                if (isDeepSeekApiKeyAvailable) {
+                    Log.w(TAG, "Falling back to DeepSeek for fetchMedicineInstruction", e)
+                    try {
+                        val systemPrompt = "You are an expert Russian doctor and clinical pharmacologist. Return patient instruction strictly in JSON format matching the schema."
+                        val dsJsonText = callDeepSeekChat(prompt, systemInstruction = systemPrompt)
+                        val adapter = moshi.adapter(DrugInstruction::class.java)
+                        val result = adapter.fromJson(dsJsonText)
+                        if (result != null) return@withContext result
+                    } catch (dsEx: Exception) {
+                        Log.e(TAG, "DeepSeek fallback failed for fetchMedicineInstruction", dsEx)
+                    }
+                }
+            }
             Log.e(TAG, "Error fetching instruction from Gemini", e)
             getLocalSimulatedInstruction(medicineName)
         }
