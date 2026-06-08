@@ -7,5 +7,6 @@ import java.io.Serializable
 @Entity(tableName = "pillboxes")
 data class Pillbox(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val name: String
+    val name: String,
+    val notificationsEnabled: Boolean = true
 ) : Serializable

@@ -2,228 +2,123 @@ package com.example.api
 
 import android.util.Log
 import com.example.BuildConfig
-import com.example.data.Medicine
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import retrofit2.Retrofit
-import retrofit2.converter.moshi.MoshiConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.POST
-import retrofit2.http.Path
-import retrofit2.http.Query
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 
 // --- Moshi Data Classes for Gemini Request/Response ---
-
 @JsonClass(generateAdapter = true)
-data class GenerateContentRequest(
-    val contents: List<Content>,
-    val generationConfig: GenerationConfig? = null,
-    val systemInstruction: Content? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class Content(
-    val parts: List<Part>
-)
-
-@JsonClass(generateAdapter = true)
-data class Part(
-    val text: String? = null,
-    val inlineData: InlineData? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class InlineData(
+data class GeminiInlineData(
     val mimeType: String,
-    val data: String // Base64 encoding without wrapper lines
+    val data: String
 )
 
 @JsonClass(generateAdapter = true)
-data class GenerationConfig(
+data class GeminiPart(
+    val text: String? = null,
+    val inlineData: GeminiInlineData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiContent(
+    val parts: List<GeminiPart>,
+    val role: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiGenerationConfig(
     val responseMimeType: String? = null,
-    // We send structured schemas as Map<String, Any> for maximum flexibility with Moshi
-    val responseSchema: Map<String, Any>? = null,
     val temperature: Float? = null
 )
 
 @JsonClass(generateAdapter = true)
-data class GenerateContentResponse(
-    val candidates: List<Candidate> = emptyList()
+data class GeminiRequest(
+    val contents: List<GeminiContent>,
+    val generationConfig: GeminiGenerationConfig? = null
 )
 
 @JsonClass(generateAdapter = true)
-data class Candidate(
-    val content: Content? = null
-)
-
-// --- Retrofit Endpoints ---
-
-interface GeminiApiService {
-    @POST("v1beta/models/{model}:generateContent")
-    suspend fun generateContent(
-        @Path("model") model: String,
-        @Query("key") apiKey: String,
-        @Body request: GenerateContentRequest
-    ): GenerateContentResponse
-}
-
-// --- Retrofit Moshi Client ---
-
-object RetrofitClient {
-    private const val BASE_URL = "https://generativelanguage.googleapis.com/"
-
-    private val moshi: Moshi = Moshi.Builder()
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
-
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
-
-    val service: GeminiApiService by lazy {
-        val retrofit = Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
-        retrofit.create(GeminiApiService::class.java)
-    }
-}
-
-// --- DeepSeek Data Classes ---
-
-@JsonClass(generateAdapter = true)
-data class DeepSeekRequest(
-    val model: String = "deepseek-chat",
-    val messages: List<DeepSeekMessage>,
-    @Json(name = "response_format") val responseFormat: DeepSeekResponseFormat? = null,
-    val temperature: Float? = null
+data class GeminiResponse(
+    val candidates: List<GeminiCandidate>? = null,
+    val error: GeminiErrorDetails? = null
 )
 
 @JsonClass(generateAdapter = true)
-data class DeepSeekMessage(
-    val role: String, // "system", "user", "assistant"
-    val content: String
+data class GeminiCandidate(
+    val content: GeminiContent? = null
 )
 
 @JsonClass(generateAdapter = true)
-data class DeepSeekResponseFormat(
-    val type: String // "json_object"
+data class GeminiErrorDetails(
+    val code: Int? = null,
+    val message: String? = null,
+    val status: String? = null
+)
+// --- End of Request/Response Classes ---
+
+// --- Moshi Data Classes for Grok Request/Response ---
+@JsonClass(generateAdapter = true)
+data class GrokPart(
+    val type: String,
+    val text: String? = null,
+    val image_url: GrokImageUrl? = null
 )
 
 @JsonClass(generateAdapter = true)
-data class DeepSeekResponse(
-    val choices: List<DeepSeekChoice> = emptyList()
-)
-
-@JsonClass(generateAdapter = true)
-data class DeepSeekChoice(
-    val message: DeepSeekMessage? = null
-)
-
-interface DeepSeekApiService {
-    @POST("chat/completions")
-    suspend fun chatCompletions(
-        @retrofit2.http.Header("Authorization") authorization: String,
-        @Body request: DeepSeekRequest
-    ): DeepSeekResponse
-}
-
-object DeepSeekRetrofitClient {
-    private const val BASE_URL = "https://api.deepseek.com/"
-
-    private val moshi: Moshi = Moshi.Builder()
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
-
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
-
-    val service: DeepSeekApiService by lazy {
-        val retrofit = Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
-        retrofit.create(DeepSeekApiService::class.java)
-    }
-}
-
-// --- Grok (xAI) Data Classes ---
-
-@JsonClass(generateAdapter = true)
-data class GrokRequest(
-    val model: String = "grok-2-1212",
-    val messages: List<GrokMessage>,
-    @Json(name = "response_format") val responseFormat: GrokResponseFormat? = null,
-    val temperature: Float? = null
+data class GrokImageUrl(
+    val url: String
 )
 
 @JsonClass(generateAdapter = true)
 data class GrokMessage(
-    val role: String, // "system", "user"
-    val content: String
+    val role: String,
+    val content: List<GrokPart>
 )
 
 @JsonClass(generateAdapter = true)
 data class GrokResponseFormat(
-    val type: String // "json_object"
+    val type: String
+)
+
+@JsonClass(generateAdapter = true)
+data class GrokRequest(
+    val model: String,
+    val messages: List<GrokMessage>,
+    val temperature: Float? = null,
+    val response_format: GrokResponseFormat? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GrokResponse(
-    val choices: List<GrokChoice> = emptyList()
+    val choices: List<GrokChoice>? = null,
+    val error: GrokErrorDetails? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GrokChoice(
-    val message: GrokMessage? = null
+    val message: GrokMessageDetails? = null
 )
 
-interface GrokApiService {
-    @POST("v1/chat/completions")
-    suspend fun chatCompletions(
-        @retrofit2.http.Header("Authorization") authorization: String,
-        @Body request: GrokRequest
-    ): GrokResponse
-}
+@JsonClass(generateAdapter = true)
+data class GrokMessageDetails(
+    val content: String? = null
+)
 
-object GrokRetrofitClient {
-    private const val BASE_URL = "https://api.x.ai/"
-
-    private val moshi: Moshi = Moshi.Builder()
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
-
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
-
-    val service: GrokApiService by lazy {
-        val retrofit = Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
-        retrofit.create(GrokApiService::class.java)
-    }
-}
+@JsonClass(generateAdapter = true)
+data class GrokErrorDetails(
+    val message: String? = null,
+    val type: String? = null,
+    val code: String? = null
+)
+// --- End of Grok Classes ---
 
 // --- Parsed Data Classes ---
 
@@ -260,11 +155,14 @@ data class DrugInstruction(
     val name: String,
     val description: String,
     val active_substance: String,
+    val composition: String = "",        // Состав препарата
     val indications: String,             // Показания к применению
     val dosage: String,                  // Способ применения и дозы
     val contraindications: String,       // Противопоказания
     val side_effects: String,            // Побочные эффекты
-    val special_instructions: String     // Особые указания
+    val special_instructions: String,     // Особые указания
+    val storage_conditions: String = "",  // Условия хранения
+    val interaction: String = ""         // Взаимодействие с другими препаратами
 )
 
 object GeminiService {
@@ -294,28 +192,18 @@ object GeminiService {
         for (attempt in 1..maxAttempts) {
             try {
                 return block()
-            } catch (e: retrofit2.HttpException) {
+            } catch (e: Exception) {
                 lastException = e
-                val code = e.code()
-                if (code == 429 || code >= 500) {
-                    if (attempt < maxAttempts) {
-                        val waitTime = currentDelayMs * attempt
-                        Log.w(TAG, "Transient HTTP error code $code detected on attempt $attempt/$maxAttempts. Retrying in ${waitTime}ms...")
-                        kotlinx.coroutines.delay(waitTime)
-                        continue
-                    }
+                val msg = e.localizedMessage ?: ""
+                if (msg.contains("403") || msg.contains("400") || msg.contains("API key not valid") || msg.contains("Forbidden") || msg.contains("INVALID_ARGUMENT")) {
+                    throw e
                 }
-                throw e
-            } catch (e: java.io.IOException) {
-                lastException = e
                 if (attempt < maxAttempts) {
                     val waitTime = currentDelayMs * attempt
-                    Log.w(TAG, "Network I/O exception detected on attempt $attempt/$maxAttempts. Retrying in ${waitTime}ms...", e)
+                    Log.w(TAG, "Transient error detected on attempt $attempt/$maxAttempts. Retrying in ${waitTime}ms...", e)
                     kotlinx.coroutines.delay(waitTime)
                     continue
                 }
-                throw e
-            } catch (e: Exception) {
                 throw e
             }
         }
@@ -330,90 +218,341 @@ object GeminiService {
         }
     }
 
-    val isApiKeyAvailable: Boolean
-        get() = try {
-            BuildConfig.GEMINI_API_KEY.isNotEmpty() && BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY"
-        } catch (e: Exception) {
-            false
+    var selectedAiProvider: String = "gemini"
+    var appApiKey: String = ""
+    var appBaseUrl: String = ""
+
+    var appGrokApiKey: String = ""
+    var appGrokBaseUrl: String = "https://api.x.ai/v1"
+    var appGrokModel: String = "grok-2-latest"
+
+    val activeBaseUrl: String
+        get() = appBaseUrl.ifEmpty { "https://generativelanguage.googleapis.com" }.removeSuffix("/")
+
+    val activeApiKey: String
+        get() = appApiKey.ifEmpty { BuildConfig.GEMINI_API_KEY }
+
+    val activeGrokApiKey: String
+        get() = appGrokApiKey.ifEmpty {
+            try {
+                BuildConfig.GROK_API_KEY
+            } catch (e: Exception) {
+                ""
+            }
         }
 
-    val isDeepSeekApiKeyAvailable: Boolean
+    val isApiKeyAvailable: Boolean
         get() = try {
-            BuildConfig.DEEPSEEK_API_KEY.isNotEmpty() && BuildConfig.DEEPSEEK_API_KEY != "MY_DEEPSEEK_API_KEY"
+            activeApiKey.isNotEmpty() && activeApiKey != "MY_GEMINI_API_KEY"
         } catch (e: Exception) {
             false
         }
 
     val isGrokApiKeyAvailable: Boolean
-        get() = try {
-            BuildConfig.GROK_API_KEY.isNotEmpty() && BuildConfig.GROK_API_KEY != "MY_GROK_API_KEY"
-        } catch (e: Exception) {
-            false
+        get() = activeGrokApiKey.isNotEmpty() && activeGrokApiKey != "MY_GROK_API_KEY"
+
+    fun getApiKeyStatusDescription(): String {
+        val providerStr = if (selectedAiProvider == "gemini") "Gemini API" else "Grok API"
+        val geminiKey = activeApiKey
+        val geminiStatus = if (geminiKey.isEmpty()) {
+            "Ключ Gemini отсутствует"
+        } else if (geminiKey == "MY_GEMINI_API_KEY") {
+            "Встроенный плейсхолдер Gemini ('MY_GEMINI_API_KEY'). Запросы могут блокироваться Google из РФ/РБ."
+        } else {
+            val isCustom = appApiKey.isNotEmpty()
+            val typeStr = if (isCustom) "Пользовательский (вручную)" else "Встроенный (AI Studio Secrets)"
+            val masked = if (geminiKey.length > 8) "${geminiKey.take(6)}...${geminiKey.takeLast(4)}" else "***"
+            "$typeStr (маска: $masked)"
         }
 
-    suspend fun callDeepSeekChat(prompt: String, systemInstruction: String? = null): String {
-        if (!isDeepSeekApiKeyAvailable) {
-            throw Exception("DeepSeek API-ключ не настроен. Пожалуйста, укажите рабочий ключ в Secrets панели AI Studio.")
+        val grokKey = activeGrokApiKey
+        val grokStatus = if (grokKey.isEmpty()) {
+            "Ключ Grok отсутствует"
+        } else if (grokKey == "MY_GROK_API_KEY") {
+            "Встроенный плейсхолдер Grok ('MY_GROK_API_KEY')"
+        } else {
+            val isCustom = appGrokApiKey.isNotEmpty()
+            val typeStr = if (isCustom) "Пользовательский (вручную)" else "Встроенный (Семейство ключей)"
+            val masked = if (grokKey.length > 8) "${grokKey.take(6)}...${grokKey.takeLast(4)}" else "***"
+            "$typeStr (маска: $masked)"
         }
-        val system = systemInstruction ?: "You are a professional assistant. You must return JSON output matching the requested schema."
-        val messages = listOf(
-            DeepSeekMessage(role = "system", content = system),
-            DeepSeekMessage(role = "user", content = prompt)
-        )
-        val request = DeepSeekRequest(
-            model = "deepseek-chat",
-            messages = messages,
-            responseFormat = DeepSeekResponseFormat(type = "json_object"),
-            temperature = 0.2f
-        )
-        val authorization = "Bearer ${BuildConfig.DEEPSEEK_API_KEY}"
-        
-        val response = retryOnTransientErrors {
-            DeepSeekRetrofitClient.service.chatCompletions(authorization, request)
-        }
-        return response.choices.firstOrNull()?.message?.content ?: throw Exception("DeepSeek вернул пустой ответ.")
+
+        return "Выбранный ИИ по умолчанию: $providerStr\n\n• Gemini: $geminiStatus\n• Grok: $grokStatus"
     }
 
-    suspend fun callGrokChat(prompt: String, systemInstruction: String? = null): String {
-        if (!isGrokApiKeyAvailable) {
-            throw Exception("Grok API-ключ не настроен. Пожалуйста, укажите рабочий ключ в Secrets панели AI Studio.")
+    private suspend fun makeGeminiApiCall(
+        modelName: String,
+        prompt: String,
+        base64Image: String? = null,
+        responseJson: Boolean = false,
+        temperature: Float = 0.2f
+    ): String = withContext(Dispatchers.IO) {
+        val key = activeApiKey
+        if (key.isEmpty()) {
+            throw Exception("Ключ API не настроен. Пожалуйста, укажите рабочий ключ в настройках.")
         }
-        val system = systemInstruction ?: "You are a professional assistant. You must return JSON output matching the requested schema."
-        val messages = listOf(
-            GrokMessage(role = "system", content = system),
-            GrokMessage(role = "user", content = prompt)
-        )
-        val request = GrokRequest(
-            model = "grok-2-1212",
-            messages = messages,
-            responseFormat = GrokResponseFormat(type = "json_object"),
-            temperature = 0.2f
-        )
-        val authorization = "Bearer ${BuildConfig.GROK_API_KEY}"
-        
-        val response = retryOnTransientErrors {
-            GrokRetrofitClient.service.chatCompletions(authorization, request)
+
+        val parts = mutableListOf<GeminiPart>()
+        if (!base64Image.isNullOrEmpty()) {
+            val cleanBase64 = base64Image.substringAfter("base64,")
+            parts.add(GeminiPart(inlineData = GeminiInlineData(mimeType = "image/jpeg", data = cleanBase64)))
         }
-        return response.choices.firstOrNull()?.message?.content ?: throw Exception("Grok вернул пустой ответ.")
+        parts.add(GeminiPart(text = prompt))
+
+        val geminiRequest = GeminiRequest(
+            contents = listOf(GeminiContent(parts = parts)),
+            generationConfig = GeminiGenerationConfig(
+                responseMimeType = if (responseJson) "application/json" else null,
+                temperature = temperature
+            )
+        )
+
+        val requestJson = moshi.adapter(GeminiRequest::class.java).toJson(geminiRequest)
+
+        val cleanBaseUrl = activeBaseUrl.removeSuffix("/")
+        val finalUrl = if (cleanBaseUrl.contains("models/")) {
+            "$cleanBaseUrl:generateContent?key=$key"
+        } else if (cleanBaseUrl.contains("/v1") || cleanBaseUrl.contains("/v1beta")) {
+            "$cleanBaseUrl/models/$modelName:generateContent?key=$key"
+        } else {
+            "$cleanBaseUrl/v1beta/models/$modelName:generateContent?key=$key"
+        }
+
+        val client = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+         val requestBody = requestJson.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+ 
+         val httpRequest = okhttp3.Request.Builder()
+             .url(finalUrl)
+             .post(requestBody)
+             .header("Content-Type", "application/json")
+             .build()
+ 
+         client.newCall(httpRequest).execute().use { response ->
+             val code = response.code
+             val bodyString = response.body?.string() ?: ""
+
+            if (response.isSuccessful) {
+                val geminiResponse = try {
+                    moshi.adapter(GeminiResponse::class.java).fromJson(bodyString)
+                } catch (e: Exception) {
+                    throw Exception("Не удалось распарсить ответ сервера: ${e.localizedMessage}")
+                }
+                val textResult = geminiResponse?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                if (textResult != null) {
+                    return@withContext textResult
+                } else {
+                    throw Exception("В ответе сервера отсутствуют текстовые кандидаты.")
+                }
+            } else {
+                var errMsg = try {
+                    val errorContainer = moshi.adapter(GeminiResponse::class.java).fromJson(bodyString)
+                    errorContainer?.error?.message ?: "Код ошибки: $code"
+                } catch (e: Exception) {
+                    "Код ошибки: $code. Ответ сервера: $bodyString"
+                }
+
+                if (errMsg.contains("leaked", ignoreCase = true)) {
+                    errMsg = "Ваш API-ключ Gemini был заблокирован Google из-за утечки в сеть (API key reported as leaked).\n\n" +
+                            "Как исправить:\n" +
+                            "1. Перейдите во вкладку «Настройки» (иконка шестеренки справа внизу) в раздел «Настройка ИИ».\n" +
+                            "2. Получите новый личный API-ключ в Google AI Studio и вставьте его в поле «Личный API-ключ Gemini».\n" +
+                            "3. Также вы можете настроить прокси/зеркало ниже этой строки, если у вас заблокирован прямой доступ."
+                }
+                throw Exception(errMsg)
+            }
+        }
+    }
+
+    private suspend fun makeGrokApiCall(
+        modelName: String,
+        prompt: String,
+        base64Image: String? = null,
+        responseJson: Boolean = false,
+        temperature: Float = 0.2f
+    ): String = withContext(Dispatchers.IO) {
+        val key = activeGrokApiKey
+        if (key.isEmpty()) {
+            throw Exception("Ключ API Grok не настроен. Пожалуйста, укажите рабочий ключ в настройках.")
+        }
+
+        val parts = mutableListOf<GrokPart>()
+        parts.add(GrokPart(type = "text", text = prompt))
+        if (!base64Image.isNullOrEmpty()) {
+            val cleanBase64 = base64Image.substringAfter("base64,")
+            parts.add(GrokPart(type = "image_url", image_url = GrokImageUrl(url = "data:image/jpeg;base64,$cleanBase64")))
+        }
+
+        val grokRequest = GrokRequest(
+            model = modelName,
+            messages = listOf(GrokMessage(role = "user", content = parts)),
+            temperature = temperature,
+            response_format = if (responseJson) GrokResponseFormat(type = "json_object") else null
+        )
+
+        val requestJson = moshi.adapter(GrokRequest::class.java).toJson(grokRequest)
+
+        val cleanBaseUrl = appGrokBaseUrl.removeSuffix("/")
+        val finalUrl = if (cleanBaseUrl.contains("chat/completions")) {
+            cleanBaseUrl
+        } else {
+            "$cleanBaseUrl/chat/completions"
+        }
+
+        val client = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+        val requestBody = requestJson.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+        val httpRequest = okhttp3.Request.Builder()
+            .url(finalUrl)
+            .post(requestBody)
+            .header("Authorization", "Bearer $key")
+            .header("Content-Type", "application/json")
+            .build()
+
+        client.newCall(httpRequest).execute().use { response ->
+            val code = response.code
+            val bodyString = response.body?.string() ?: ""
+
+            if (response.isSuccessful) {
+                val grokResponse = try {
+                    moshi.adapter(GrokResponse::class.java).fromJson(bodyString)
+                } catch (e: Exception) {
+                    throw Exception("Не удалось распарсить ответ Grok: ${e.localizedMessage}")
+                }
+                val textResult = grokResponse?.choices?.firstOrNull()?.message?.content
+                if (textResult != null) {
+                    return@withContext textResult
+                } else {
+                    throw Exception("В ответе Grok отсутствуют текстовые кандидаты.")
+                }
+            } else {
+                val errMsg = try {
+                    val errorContainer = moshi.adapter(GrokResponse::class.java).fromJson(bodyString)
+                    errorContainer?.error?.message ?: "Код ошибки Grok: $code"
+                } catch (e: Exception) {
+                    "Код ошибки Grok: $code. Ответ сервера: $bodyString"
+                }
+                throw Exception(errMsg)
+            }
+        }
+    }
+
+    private suspend fun makeUnifiedApiCall(
+        geminiModelName: String,
+        grokModelName: String,
+        prompt: String,
+        base64Image: String? = null,
+        responseJson: Boolean = false,
+        temperature: Float = 0.2f
+    ): String = withContext(Dispatchers.IO) {
+        val primaryProvider = selectedAiProvider
+        val fallbackProvider = if (primaryProvider == "gemini") "grok" else "gemini"
+
+        var lastError: Exception? = null
+
+        // Try primary provider
+        try {
+            Log.d(TAG, "Trying primary AI provider: $primaryProvider")
+            if (primaryProvider == "grok") {
+                return@withContext makeGrokApiCall(grokModelName, prompt, base64Image, responseJson, temperature)
+            } else {
+                return@withContext makeGeminiApiCall(geminiModelName, prompt, base64Image, responseJson, temperature)
+            }
+        } catch (e: Exception) {
+            lastError = e
+            Log.e(TAG, "Primary AI provider ($primaryProvider) failed: ${e.localizedMessage}. Attempting failover to $fallbackProvider...", e)
+        }
+
+        // Try fallback provider
+        try {
+            if (fallbackProvider == "grok") {
+                if (activeGrokApiKey.isNotEmpty()) {
+                    Log.d(TAG, "Failover: calling Grok API...")
+                    return@withContext makeGrokApiCall(grokModelName, prompt, base64Image, responseJson, temperature)
+                } else {
+                    Log.w(TAG, "Failover to Grok requested but no Grok API Key is available.")
+                }
+            } else {
+                if (isApiKeyAvailable) {
+                    Log.d(TAG, "Failover: calling Gemini API...")
+                    return@withContext makeGeminiApiCall(geminiModelName, prompt, base64Image, responseJson, temperature)
+                } else {
+                    Log.w(TAG, "Failover to Gemini requested but no Gemini API Key is available.")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Fallback AI provider ($fallbackProvider) also failed: ${e.localizedMessage}")
+            throw Exception("Ни один ИИ не ответил успешно.\n\n" +
+                    "Главный ИИ ($primaryProvider) вернул её ошибку:\n${lastError?.localizedMessage}\n\n" +
+                    "Резервный ИИ ($fallbackProvider) вернул:\n${e.localizedMessage}")
+        }
+
+        throw lastError ?: Exception("Вызов ИИ завершился ошибкой.")
     }
 
     /**
-     * Parses medicine упаковка (photo) using multimodal Gemini 3.5 Flash or offline fallback.
+     * Tests the connection to the Gemini API using the currently configured key and endpoint.
+     * Returns a friendly result string.
      */
-    suspend fun parsePackagePhoto(base64Image: String, simulatedName: String? = null): ParsedZnakResult = withContext(Dispatchers.IO) {
-        if (simulatedName != null) {
-            // User explicitly requested to simulate a specific drug via simulation chips
-            return@withContext parseOfflinePhoto(simulatedName)
+    suspend fun testConnection(): String = withContext(Dispatchers.IO) {
+        if (selectedAiProvider == "grok" && !isGrokApiKeyAvailable) {
+            return@withContext "Ключ API Grok не настроен. Пожалуйста, укажите рабочий ключ в настройках."
         }
+        if (selectedAiProvider == "gemini" && !isApiKeyAvailable) {
+            return@withContext "Ключ API Gemini не настроен. Пожалуйста, укажите рабочий ключ в настройках."
+        }
+        try {
+            val response = retryOnTransientErrors {
+                makeUnifiedApiCall(
+                    geminiModelName = "gemini-3.5-flash",
+                    grokModelName = appGrokModel.ifEmpty { "grok-2-latest" },
+                    prompt = "Respond only with the word OK.",
+                    temperature = 0.1f
+                )
+            }
+            if (response.isNotEmpty()) {
+                "Успешное подключение! ИИ ответил: ${response.trim()}"
+            } else {
+                "Получен пустой ответ от ИИ."
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Test connection failed", e)
+            val msg = e.localizedMessage ?: "Неизвестная ошибка"
+            if (msg.contains("403") || msg.contains("Forbidden")) {
+                "Ошибка 403 Forbidden: Доступ заблокирован. Скорее всего, ваш IP-адрес находится в заблокированном регионе (например, РФ/РБ). Пожалуйста, включите качественный VPN или настройте рабочее зеркало/прокси."
+            } else if (msg.contains("400") || msg.contains("API key not valid") || msg.contains("INVALID_ARGUMENT")) {
+                "Ошибка 400 Bad Request: Неверный запрос или модель. Возможно, ваш API-ключ недействителен."
+            } else if (msg.contains("429")) {
+                "Ошибка 429 Too Many Requests: Лимит запросов превышен. Пожалуйста, подождите."
+            } else {
+                msg
+            }
+        }
+    }
 
+    /**
+     * Parses medicine упаковка (photo) using multimodal Gemini/Grok API or offline fallback.
+     */
+    suspend fun parsePackagePhoto(base64Image: String): ParsedZnakResult = withContext(Dispatchers.IO) {
         // Real image scanning intent
         if (base64Image.isEmpty()) {
             throw Exception("Не удалось захватить снимок с камеры. Пожалуйста, сделайте ещё одно фото.")
         }
 
-        if (!isApiKeyAvailable) {
-            Log.w(TAG, "API key is missing")
-            throw Exception("Ключ API Gemini не настроен. Пожалуйста, укажите рабочий ключ в Secrets панели AI Studio.")
+        if (selectedAiProvider == "grok" && !isGrokApiKeyAvailable) {
+            throw Exception("Ключ API Grok не настроен. Пожалуйста, укажите рабочий ключ в настройках.")
+        }
+        if (selectedAiProvider == "gemini" && !isApiKeyAvailable) {
+            throw Exception("Ключ API Gemini не настроен. Пожалуйста, укажите рабочий ключ в настройках.")
         }
 
         val prompt = """
@@ -439,77 +578,38 @@ object GeminiService {
             }
         """.trimIndent()
 
-        val responseSchemaSchema = mapOf(
-            "type" to "OBJECT",
-            "properties" to mapOf(
-                "name" to mapOf("type" to "STRING", "description" to "Medicine commercial name in Russian"),
-                "gtin" to mapOf("type" to "STRING", "description" to "14 digit GTIN if visible, else empty"),
-                "serial" to mapOf("type" to "STRING", "description" to "Random serial code"),
-                "expiration_date" to mapOf("type" to "STRING", "description" to "Recognized expiration date as YYYY-MM-DD"),
-                "batch" to mapOf("type" to "STRING", "description" to "Batch/series from packaging or empty"),
-                "success" to mapOf("type" to "BOOLEAN"),
-                "package_count" to mapOf("type" to "INTEGER", "description" to "Parsed quantity of pills/capsules in package, or 0 if not found"),
-                "tags" to mapOf(
-                    "type" to "ARRAY",
-                    "items" to mapOf("type" to "STRING"),
-                    "description" to "Recognized Russian therapeutic tags, e.g., Обезболивающее, Жаропонижающее, Спазмолитик"
-                )
-            ),
-            "required" to listOf("name", "gtin", "serial", "expiration_date", "batch", "success", "package_count", "tags")
-        )
-
-        val request = GenerateContentRequest(
-            contents = listOf(
-                Content(
-                    parts = listOf(
-                        Part(text = prompt),
-                        Part(inlineData = InlineData(mimeType = "image/jpeg", data = base64Image))
-                    )
-                )
-            ),
-            generationConfig = GenerationConfig(
-                responseMimeType = "application/json",
-                responseSchema = responseSchemaSchema,
-                temperature = 0.1f
-            )
-        )
-
         try {
-            val response = retryOnTransientErrors {
-                RetrofitClient.service.generateContent("gemini-3.5-flash", BuildConfig.GEMINI_API_KEY, request)
+            val responseText = retryOnTransientErrors {
+                makeUnifiedApiCall(
+                    geminiModelName = "gemini-3.5-flash",
+                    grokModelName = appGrokModel.ifEmpty { "grok-2-latest" },
+                    prompt = prompt,
+                    base64Image = base64Image,
+                    responseJson = true,
+                    temperature = 0.1f
+                )
             }
-            val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            if (!jsonText.isNullOrEmpty()) {
+            if (responseText.isNotEmpty()) {
+                val cleanJson = responseText
+                    .replace(Regex("^```json\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("^```\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("\\s*```$", RegexOption.IGNORE_CASE), "")
+                    .trim()
+
                 val adapter = moshi.adapter(ParsedZnakResult::class.java)
-                adapter.fromJson(jsonText) ?: throw Exception("Не удалось расшифровать структуру ответа нейросети.")
+                adapter.fromJson(cleanJson) ?: throw Exception("Не удалось расшифровать структуру ответа нейросети.")
             } else {
                 throw Exception("Нейросеть вернула пустой ответ.")
             }
         } catch (e: Exception) {
-            val isRateLimitOrServiceUnavailable = (e is retrofit2.HttpException && (e.code() == 429 || e.code() == 503)) ||
-                    (e.localizedMessage?.contains("429") == true || e.localizedMessage?.contains("503") == true)
-            
-            if (isRateLimitOrServiceUnavailable) {
-                Log.w(TAG, "Gemini parsing photo error 429/503. Falling back to offline emulator data...", e)
-                try {
-                    return@withContext parseOfflinePhoto(getNextFallbackName())
-                } catch (fallbackEx: Exception) {
-                    Log.e(TAG, "Failed fallback to offline data in photo parse", fallbackEx)
-                }
-            }
-
-            Log.e(TAG, "Error photo parsing via Gemini", e)
+            Log.e(TAG, "Error photo parsing via Gemini/Grok", e)
             val friendlyMsg = when {
-                e is retrofit2.HttpException && e.code() == 429 -> 
-                    "Превышен лимит запросов к ИИ (Ошибка 429). Пожалуйста, повторите попытку через 15-30 секунд или воспользуйтесь ручным вводом."
-                e is retrofit2.HttpException && e.code() == 503 -> 
-                    "Сервисы ИИ временно перегружены (Ошибка 503). Пожалуйста, сфотографируйте пачку ещё раз через пару секунд."
-                e is retrofit2.HttpException -> 
-                    "Ошибка сервера ИИ (Код ${e.code()}). Пожалуйста, попробуйте отсканировать позже."
                 e.localizedMessage?.contains("429") == true ->
                     "Превышен лимит запросов к ИИ (Ошибка 429). Пожалуйста, повторите попытку через 15-30 секунд или воспользуйтесь ручным вводом."
                 e.localizedMessage?.contains("503") == true ->
                     "Сервисы ИИ временно недоступны (Ошибка 503). Пожалуйста, попробуйте сфотографировать ещё раз через пару секунд."
+                e.localizedMessage?.contains("403") == true ->
+                    "Ошибка доступа (Код 403 Forbidden). Скорее всего, ваш API-ключ недействителен, либо доступ заблокирован по региону (пожалуйста, используйте качественный VPN/прокси)."
                 else -> e.localizedMessage ?: "ошибка сети или неверный API-ключ."
             }
             throw Exception(friendlyMsg)
@@ -520,9 +620,10 @@ object GeminiService {
      * Looks up therapeutic substitutes.
      */
     suspend fun searchAnalogs(medicineName: String): AnalogRecommendResult = withContext(Dispatchers.IO) {
-        if (!isApiKeyAvailable) {
-            Log.w(TAG, "API key is missing, using simulator search")
-            return@withContext getLocalSimulatedAnalogs(medicineName)
+        val isProviderAvailable = if (selectedAiProvider == "grok") isGrokApiKeyAvailable else isApiKeyAvailable
+        if (!isProviderAvailable) {
+            val providerName = if (selectedAiProvider == "grok") "Grok" else "Gemini"
+            throw Exception("Ошибка: Ключ API для $providerName не настроен. Пожалуйста, укажите рабочий ключ API в настройках профиля.")
         }
 
         val prompt = """
@@ -535,83 +636,31 @@ object GeminiService {
             Return raw, strict JSON only.
         """.trimIndent()
 
-        val responseSchemaSchema = mapOf(
-            "type" to "OBJECT",
-            "properties" to mapOf(
-                "origin_name" to mapOf("type" to "STRING"),
-                "description" to mapOf("type" to "STRING"),
-                "active_substance" to mapOf("type" to "STRING"),
-                "analogs" to mapOf(
-                    "type" to "ARRAY",
-                    "items" to mapOf(
-                        "type" to "OBJECT",
-                        "properties" to mapOf(
-                            "name" to mapOf("type" to "STRING"),
-                            "manufacturer" to mapOf("type" to "STRING"),
-                            "price_category" to mapOf("type" to "STRING"),
-                            "notes" to mapOf("type" to "STRING")
-                        ),
-                        "required" to listOf("name", "manufacturer", "price_category", "notes")
-                    )
-                )
-            ),
-            "required" to listOf("origin_name", "description", "active_substance", "analogs")
-        )
-
-        val request = GenerateContentRequest(
-            contents = listOf(Content(parts = listOf(Part(text = prompt)))),
-            generationConfig = GenerationConfig(
-                responseMimeType = "application/json",
-                responseSchema = responseSchemaSchema,
-                temperature = 0.2f
-            )
-        )
-
         try {
-            val response = retryOnTransientErrors {
-                RetrofitClient.service.generateContent("gemini-3.5-flash", BuildConfig.GEMINI_API_KEY, request)
+            val responseText = retryOnTransientErrors {
+                makeUnifiedApiCall(
+                    geminiModelName = "gemini-3.5-flash",
+                    grokModelName = appGrokModel.ifEmpty { "grok-2-latest" },
+                    prompt = prompt,
+                    responseJson = true,
+                    temperature = 0.2f
+                )
             }
-            val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            if (!jsonText.isNullOrEmpty()) {
+            if (responseText.isNotEmpty()) {
+                val cleanJson = responseText
+                    .replace(Regex("^```json\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("^```\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("\\s*```$", RegexOption.IGNORE_CASE), "")
+                    .trim()
+
                 val adapter = moshi.adapter(AnalogRecommendResult::class.java)
-                adapter.fromJson(jsonText) ?: getLocalSimulatedAnalogs(medicineName)
+                adapter.fromJson(cleanJson) ?: throw Exception("Не удалось разобрать данные аналогов от ИИ.")
             } else {
-                getLocalSimulatedAnalogs(medicineName)
+                throw Exception("Получен пустой ответ от ИИ.")
             }
         } catch (e: Exception) {
-            val isRateLimitOrServiceUnavailable = (e is retrofit2.HttpException && (e.code() == 429 || e.code() == 503)) ||
-                    (e.localizedMessage?.contains("429") == true || e.localizedMessage?.contains("503") == true)
-            if (isRateLimitOrServiceUnavailable) {
-                // 1. Try Grok first
-                if (isGrokApiKeyAvailable) {
-                    Log.w(TAG, "Gemini code 429/503. Falling back to Grok for searchAnalogs", e)
-                    try {
-                        val systemPrompt = "You are a professional medical expert. Return response strictly in JSON format representing the requested schema."
-                        val grokJsonText = callGrokChat(prompt, systemInstruction = systemPrompt)
-                        val adapter = moshi.adapter(AnalogRecommendResult::class.java)
-                        val result = adapter.fromJson(grokJsonText)
-                        if (result != null) return@withContext result
-                    } catch (grokEx: Exception) {
-                        Log.e(TAG, "Grok fallback failed for searchAnalogs, will try DeepSeek next", grokEx)
-                    }
-                }
-                
-                // 2. Try DeepSeek second
-                if (isDeepSeekApiKeyAvailable) {
-                    Log.w(TAG, "Falling back to DeepSeek for searchAnalogs", e)
-                    try {
-                        val systemPrompt = "You are a professional medical expert. Return response strictly in JSON format representing the requested schema."
-                        val dsJsonText = callDeepSeekChat(prompt, systemInstruction = systemPrompt)
-                        val adapter = moshi.adapter(AnalogRecommendResult::class.java)
-                        val result = adapter.fromJson(dsJsonText)
-                        if (result != null) return@withContext result
-                    } catch (dsEx: Exception) {
-                        Log.e(TAG, "DeepSeek fallback failed for searchAnalogs", dsEx)
-                    }
-                }
-            }
             Log.e(TAG, "Error looking up analogs", e)
-            getLocalSimulatedAnalogs(medicineName)
+            throw Exception("Не удалось получить информацию об аналогах: ${e.localizedMessage ?: e.message}")
         }
     }
 
@@ -705,6 +754,29 @@ object GeminiService {
         )
     }
 
+    private val OFFLINE_DB = listOf(
+        AnalogRecommendResult(
+            origin_name = "Но-Шпа",
+            description = "Спазмолитическое средство, снижающее тонус и спазм гладкой мускулатуры внутренних органов.",
+            active_substance = "Дротаверин",
+            analogs = listOf(
+                MedicineAnalog("Дротаверин гидрохлорид", "Озон Фарм, Россия", "Доступная", "Прямой дженерик с тем же активным веществом. Стоит значительно дешевле при высокой эффективности."),
+                MedicineAnalog("Спазмол", "Фармстандарт, Россия", "Доступная", "Отечественный спазмолитик на основе дротаверина высокого уровня очистки."),
+                MedicineAnalog("Дюспаталин", "Abbott, Нидерланды", "Высокая", "Качественный спазмолитик на основе мебеверина, действует целенаправленно на спазмы ЖКТ.")
+            )
+        ),
+        AnalogRecommendResult(
+            origin_name = "Нурофен",
+            description = "Симптоматическое противовоспалительное, жаропонижающее и анальгетическое средство группы НПВП.",
+            active_substance = "Ибупрофен",
+            analogs = listOf(
+                MedicineAnalog("Ибупрофен форте", "Акрихин, Россия", "Доступная", "Отечественный ибупрофен высокой степени эквивалентности. Экономичное решение."),
+                MedicineAnalog("МИГ 400", "Berlin-Chemie, Германия", "Средняя", "Немецкий препарат ибупрофена в дозировке 400 мг быстрого высвобождения."),
+                MedicineAnalog("Парацетамол-УБФ", "Уралбиофарм, Россия", "Доступная", "Альтернативное жаропонижающее средство (парацетамол) при индивидуальной непереносимости.")
+            )
+        )
+    )
+
     fun getLocalSimulatedAnalogs(medicineName: String): AnalogRecommendResult {
         val normalized = medicineName.lowercase().trim()
         val match = OFFLINE_DB.find { normalized.contains(it.origin_name.lowercase()) || it.origin_name.lowercase().contains(normalized) }
@@ -728,249 +800,91 @@ object GeminiService {
                     name = "${medicineName.take(5)}актив",
                     manufacturer = "Фармстандарт, Россия",
                     price_category = "Средняя",
-                    notes = "Рекомендуемый аналог отечественного производства с подтвержденной эффективностью."
-                ),
-                MedicineAnalog(
-                    name = "Оригинальный Аналог-X",
-                    manufacturer = "Sandoz, Германия / Австрия",
-                    price_category = "Высокая",
-                    notes = "Премиальный импортный дженерик высокого терапевтического действия."
+                    notes = "Отечественный препарат, эффективная альтернатива оригиналу."
                 )
             )
         )
     }
 
-    data class TestMockCode(
-        val name: String,
-        val gtin: String,
-        val serial: String,
-        val expDate: String,
-        val batch: String,
-        val rawCode: String
-    )
-
-    val TEST_CODES = listOf(
-        TestMockCode(
-            name = "Нурофен форте 400мг таб.",
-            gtin = "4601234567111",
-            serial = "NR11122233344",
-            expDate = "2027-08-15",
-            batch = "B5544A",
-            rawCode = "01460123456711121NR111222333441727081510B5544A"
-        ),
-        TestMockCode(
-            name = "Но-Шпа таб. 40мг N100",
-            gtin = "4601234567222",
-            serial = "NS22233344455",
-            expDate = "2026-11-20",
-            batch = "N4411C",
-            rawCode = "01460123456722221NS222333444551726112010N4411C"
-        ),
-        TestMockCode(
-            name = "Аспирин Кардио 100мг таб. N28",
-            gtin = "4601234567333",
-            serial = "AC33344455566",
-            expDate = "2025-05-30", // Already expired
-            batch = "A1564W",
-            rawCode = "01460123456733321AC333444555661725053010A1564W"
-        ),
-        TestMockCode(
-            name = "Ксарелто таб. 20мг N28",
-            gtin = "4601234567444",
-            serial = "XS44455566677",
-            expDate = "2028-02-12",
-            batch = "X9900F",
-            rawCode = "01460123456744421XS444555666771728021210X9900F"
-        ),
-        TestMockCode(
-            name = "Парацетамол таб. 500мг N20",
-            gtin = "4601234567555",
-            serial = "PC55566677788",
-            expDate = "2026-06-15", // Expiring soon in May 2026!
-            batch = "P1020A",
-            rawCode = "01460123456755521PC555666777881726061510P1020A"
-        ),
-        TestMockCode(
-            name = "Энтерофурил капс. 200мг N16",
-            gtin = "4607027768563",
-            serial = "EF77685630099",
-            expDate = "2027-07-31", // Matches screenshot!
-            batch = "EF1024",
-            rawCode = "01460702776856321EF776856300991727073110EF1024"
-        )
-    )
-
-    private val OFFLINE_DB = listOf(
-        AnalogRecommendResult(
-            origin_name = "Но-Шпа",
-            description = "Популярный спазмолитик французского производства, эффективно устраняет спазмы гладкой мускулатуры различного генеза.",
-            active_substance = "Дротаверин",
-            analogs = listOf(
-                MedicineAnalog("Дротаверин гидрохлорид", "Озон Фарм, Россия", "Доступная", "Прямой дженерик с тем же активным веществом. Стоит значительно дешевле при высокой эффективности."),
-                MedicineAnalog("Спазмол", "Фармстандарт, Россия", "Доступная", "Отечественный спазмолитик на основе дротаверина высокого уровня очистки."),
-                MedicineAnalog("Дюспаталин", "Abbott, Нидерланды", "Высокая", "Качественный спазмолитик на основе мебеверина, действует целенаправленно на спазмы ЖКТ.")
-            )
-        ),
-        AnalogRecommendResult(
-            origin_name = "Нурофен",
-            description = "Симптоматическое противовоспалительное, жаропонижающее и анальгетическое средство группы НПВП.",
-            active_substance = "Ибупрофен",
-            analogs = listOf(
-                MedicineAnalog("Ибупрофен форте", "Акрихин, Россия", "Доступная", "Отечественный ибупрофен высокой степени эквивалентности. Экономичное решение."),
-                MedicineAnalog("МИГ 400", "Berlin-Chemie, Германия", "Средняя", "Немецкий препарат ибупрофена в дозировке 400 мг быстрого высвобождения."),
-                MedicineAnalog("Парацетамол-УБФ", "Уралбиофарм, Россия", "Доступная", "Альтернативное жаропонижающее средство (парацетамол) при индивидуальной непереносимости НПВП.")
-            )
-        ),
-        AnalogRecommendResult(
-            origin_name = "Аспирин Кардио",
-            description = "Антиагрегантное средство, ацетилсалициловая кислота в специальной кишечной оболочке против тромбов.",
-            active_substance = "Ацетилсалициловая кислота",
-            analogs = listOf(
-                MedicineAnalog("Тромбо АСС", "Lannacher, Австрия", "Доступная", "Австрийский качественный аспирин в оболочке за доступную цену."),
-                MedicineAnalog("Кардиомагнил", "Takeda, Германия / Япония", "Средняя", "Комбинация ацетилсалициловой кислоты и антацида (гидроксида магния) для максимальной защиты желудка."),
-                MedicineAnalog("Ацекардол", "Синтез, Россия", "Доступная", "Отечественный кишечнорастворимый аспирин по низкой стоимости.")
-            )
-        ),
-        AnalogRecommendResult(
-            origin_name = "Ксарелто",
-            description = "Антикоагулянт нового поколения, ингибитор фактора свертывания крови Xa (ривароксабан) высокой селективности.",
-            active_substance = "Ривароксабан",
-            analogs = listOf(
-                MedicineAnalog("Ривароксабан", "Озон / Канонфарма, Россия", "Средняя", "Отечественный дженерик, сертифицирован, клинически эффективен. Стоимость на 35% ниже оригинала."),
-                MedicineAnalog("Эликвис", "Pfizer, США", "Высокая", "Аналог (апиксабан) из той же фармакологической группы современных антикоагулянтов с доказанной защитой."),
-                MedicineAnalog("Прадакса", "Boehringer Ingelheim, Германия", "Высокая", "Прямой конкурент (дабигатран), часто применяется для долгосрочной профилактики эмболии.")
-            )
-        ),
-        AnalogRecommendResult(
-            origin_name = "Энтерофурил",
-            description = "Противомикробное средство широкого спектра действия для лечения кишечных инфекций, не нарушает микрофлору кишечника.",
-            active_substance = "Нифуроксазид",
-            analogs = listOf(
-                MedicineAnalog("Нифуроксазид", "Озон / Экофарм, Россия", "Доступная", "Отечественный доступный аналог с тем же спектром и быстрым противодиарейным эффектом."),
-                MedicineAnalog("Стопдиар", "Gedeon Richter, Венгрия", "Средняя", "Качественный европейский дженерик на основе нифуроксазида, выпускается в таблетках и суспензии."),
-                MedicineAnalog("Экофурил", "АВВА РУС, Россия", "Доступная", "Российский противомикробный препарат с лактулозой для поддержки микробиома.")
-            )
-        )
-    )
-
-    /**
-     * Fetches detailed clinical patient instruction for the requested drug using Gemini.
-     */
     suspend fun fetchMedicineInstruction(medicineName: String): DrugInstruction = withContext(Dispatchers.IO) {
-        if (!isApiKeyAvailable) {
-            Log.w(TAG, "API key is missing, using local offline instruction generator")
-            return@withContext getLocalSimulatedInstruction(medicineName)
+        val isProviderAvailable = if (selectedAiProvider == "grok") isGrokApiKeyAvailable else isApiKeyAvailable
+        if (!isProviderAvailable) {
+            val providerName = if (selectedAiProvider == "grok") "Grok" else "Gemini"
+            throw Exception("Ошибка: Ключ API для $providerName не настроен. Пожалуйста, укажите рабочий ключ API в настройках профиля.")
         }
 
         val prompt = """
-            You are an expert Russian doctor and clinical pharmacologist.
-            Create a highly informative, detailed patient instruction (официальная медицинская инструкция) in Russian for the drug: "$medicineName".
-            Provide details in Russian for:
-            1. name: Commercial name (e.g. Нурофен форте)
-            2. description: Brief active pharm description
-            3. active_substance: Active ingredient name (Действующее вещество)
-            4. indications: Clear list of indications for use (Показания к применению)
-            5. dosage: Precise administration and dosage information (Способ применения и дозы)
-            6. contraindications: Warnings and contraindications (Противопоказания)
-            7. side_effects: Known side effects (Побочные действия)
-            8. special_instructions: Critical warnings and special info (Особые указания, взаимодействие с алкоголем или вождением)
+            You are a professional Russian pharmacist and clinical medicine expert.
+            The user wants the official, detailed medical instruction (инструкция по применению) for: "$medicineName".
+            Provide accurate details in Russian:
+            1. Real commercial name of the drug (name).
+            2. High-level clinical description of what it does (description).
+            3. Active pharmaceutical substance (действующее вещество) name in Russian (active_substance).
+            4. Detailed composition (химический состав препарата) list (composition).
+            5. Indications (показания к применению) (indications).
+            6. Precise dosage instructions (способ применения и дозы) (dosage).
+            7. Absolute and relative contraindications (противопоказания) (contraindications).
+            8. Known side effects (побочные эффекты) (side_effects).
+            9. Special instructions (особые указания), precautions, driver warnings (special_instructions).
+            10. Storage conditions (условия хранения, температура, влажность) (storage_conditions).
+            11. Drug interactions (взаимодействие с другими лекарственными препаратами или пищей/алкоголем) (interaction).
             
-            Return raw, strict JSON only conforming strictly to the requested schema. Do not output anything other than JSON.
+            Return raw, strict JSON only conforming to the schema of DrugInstruction.
         """.trimIndent()
 
-        val responseSchemaSchema = mapOf(
-            "type" to "OBJECT",
-            "properties" to mapOf(
-                "name" to mapOf("type" to "STRING"),
-                "description" to mapOf("type" to "STRING"),
-                "active_substance" to mapOf("type" to "STRING"),
-                "indications" to mapOf("type" to "STRING"),
-                "dosage" to mapOf("type" to "STRING"),
-                "contraindications" to mapOf("type" to "STRING"),
-                "side_effects" to mapOf("type" to "STRING"),
-                "special_instructions" to mapOf("type" to "STRING")
-            ),
-            "required" to listOf("name", "description", "active_substance", "indications", "dosage", "contraindications", "side_effects", "special_instructions")
-        )
-
-        val request = GenerateContentRequest(
-            contents = listOf(Content(parts = listOf(Part(text = prompt)))),
-            generationConfig = GenerationConfig(
-                responseMimeType = "application/json",
-                responseSchema = responseSchemaSchema,
-                temperature = 0.2f
-            )
-        )
-
         try {
-            val response = retryOnTransientErrors {
-                RetrofitClient.service.generateContent("gemini-3.5-flash", BuildConfig.GEMINI_API_KEY, request)
+            val responseText = retryOnTransientErrors {
+                makeUnifiedApiCall(
+                    geminiModelName = "gemini-3.5-flash",
+                    grokModelName = appGrokModel.ifEmpty { "grok-2-latest" },
+                    prompt = prompt,
+                    responseJson = true,
+                    temperature = 0.2f
+                )
             }
-            val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            if (!jsonText.isNullOrEmpty()) {
+            if (responseText.isNotEmpty()) {
+                val cleanJson = responseText
+                    .replace(Regex("^```json\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("^```\\s*", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("\\s*```$", RegexOption.IGNORE_CASE), "")
+                    .trim()
+
                 val adapter = moshi.adapter(DrugInstruction::class.java)
-                adapter.fromJson(jsonText) ?: getLocalSimulatedInstruction(medicineName)
+                adapter.fromJson(cleanJson) ?: throw Exception("Не удалось разобрать данные инструкции от ИИ.")
             } else {
-                getLocalSimulatedInstruction(medicineName)
+                throw Exception("Получен пустой ответ от ИИ.")
             }
         } catch (e: Exception) {
-            val isRateLimitOrServiceUnavailable = (e is retrofit2.HttpException && (e.code() == 429 || e.code() == 503)) ||
-                    (e.localizedMessage?.contains("429") == true || e.localizedMessage?.contains("503") == true)
-            if (isRateLimitOrServiceUnavailable) {
-                // 1. Try Grok first
-                if (isGrokApiKeyAvailable) {
-                    Log.w(TAG, "Gemini code 429/503. Falling back to Grok for fetchMedicineInstruction", e)
-                    try {
-                        val systemPrompt = "You are an expert Russian doctor and clinical pharmacologist. Return patient instruction strictly in JSON format matching the schema."
-                        val grokJsonText = callGrokChat(prompt, systemInstruction = systemPrompt)
-                        val adapter = moshi.adapter(DrugInstruction::class.java)
-                        val result = adapter.fromJson(grokJsonText)
-                        if (result != null) return@withContext result
-                    } catch (grokEx: Exception) {
-                        Log.e(TAG, "Grok fallback failed for fetchMedicineInstruction, trying DeepSeek next", grokEx)
-                    }
-                }
-                
-                // 2. Try DeepSeek second
-                if (isDeepSeekApiKeyAvailable) {
-                    Log.w(TAG, "Falling back to DeepSeek for fetchMedicineInstruction", e)
-                    try {
-                        val systemPrompt = "You are an expert Russian doctor and clinical pharmacologist. Return patient instruction strictly in JSON format matching the schema."
-                        val dsJsonText = callDeepSeekChat(prompt, systemInstruction = systemPrompt)
-                        val adapter = moshi.adapter(DrugInstruction::class.java)
-                        val result = adapter.fromJson(dsJsonText)
-                        if (result != null) return@withContext result
-                    } catch (dsEx: Exception) {
-                        Log.e(TAG, "DeepSeek fallback failed for fetchMedicineInstruction", dsEx)
-                    }
-                }
-            }
-            Log.e(TAG, "Error fetching instruction from Gemini", e)
-            getLocalSimulatedInstruction(medicineName)
+            Log.e(TAG, "Error fetching instruction", e)
+            throw Exception("Не удалось загрузить инструкцию препарата от ИИ: ${e.localizedMessage ?: e.message}")
         }
     }
 
     fun getLocalSimulatedInstruction(medicineName: String): DrugInstruction {
         val normalized = medicineName.lowercase().trim()
-        
+
         if (normalized.contains("нурофен")) {
             return DrugInstruction(
                 name = "Нурофен Форте 400мг",
                 description = "Нестероидный противовоспалительный препарат (НПВП). Оказывает быстрое анальгезирующее, жаропонижающее и противовоспалительное действие.",
                 active_substance = "Ибупрофен",
+                composition = "Активное вещество: ибупрофен 400 мг. Вспомогательные вещества: кроскармеллоза натрия, натрия лаурилсульфат, кремния диоксид коллоидный, стеариновая кислота, макрогол 6000, гипромеллоза, тальк.",
                 indications = "• Головная и зубная боли\n• Мигрень\n• Болезненные менструации\n• Боли в суставах, мышцах и спине\n• Лихорадочные состояния при простуде и гриппе",
                 dosage = "Внутрь, запивая водой. Взрослым и детям старше 12 лет: по 1 таблетке (400 мг) до 3 раз в сутки. Максимальная суточная доза — 1200 мг (3 таблетки). Интервал между приемами — не менее 6 часов.",
                 contraindications = "• Эрозивно-язвенные поражения ЖКТ в фазе обострения\n• Выраженная почечная или печеночная недостаточность\n• Тяжелая сердечная недостаточность\n• Беременность (III триместр)\n• Повышенная чувствительность к ибупрофену или другим компонентам",
                 side_effects = "• Со стороны пищеварительной системы: тошнота, рвота, изжога, абдоминальные боли, диарея.\n• Со стороны ЦНС: головная боль, головокружение.\n• Аллергические реакции: кожная сыпь, зуд, крапивница.",
-                special_instructions = "Не принимать одновременно с другими НПВП. Во время лечения не рекомендуется употребление алкоголя, так как это повышает риск поражения слизистой оболочки ЖКТ. С осторожностью применять при вождении автотранспорта."
+                special_instructions = "Не принимать одновременно с другими НПВП. Во время лечения не рекомендуется употребление алкоголя, так как это повышает риск поражения слизистой оболочки ЖКТ. С осторожностью применять при вождении автотранспорта.",
+                storage_conditions = "Хранить в оригинальной упаковке при температуре не выше 25 °C. Срок годности 3 года.",
+                interaction = "Не рекомендуется сочетать с ацетилсалициловой кислотой и другими НПВП. Диуретики и гипотензивные средства могут снижать свою эффективность. Повышается риск желудочно-кишечных кровотечений при совместном приеме со спиртосодержащими жидкостями."
             )
         }
-        
+
         if (normalized.contains("но-шп") || normalized.contains("ношп")) {
             return DrugInstruction(
                 name = "Но-Шпа (No-Spa)",
                 description = "Спазмолитическое средство. Снижает тонус гладкой мускулатуры внутренних органов, расширяет кровеносные сосуды.",
                 active_substance = "Дротаверин",
+                composition = "Активное вещество: дротаверина гидрохлорид 40 мг. Вспомогательные вещества: магния стеарат, тальк, повидон, крахмал кукурузный, лактозы моногидрат.",
                 indications = "• Спазмы гладкой мускулатуры при заболеваниях желчевыводящих путей (холецистит, холангит)\n• Спазмы гладкой мускулатуры мочевыводящих путей (нефролитиат, цистит)\n• В качестве вспомогательной терапии при спазмах ЖКТ (язва, гастрит, колит, метеоризм)\n• Головные боли напряжения\n• Дисменорея (менструальные боли)",
                 dosage = "Внутрь. Взрослым: по 1-2 таблетки (40мг-80мг) 2-3 раза в сутки. Максимальная суточная доза — 240 мг (6 таблеток). Детям от 6 до 12 лет: по 1 таблетке 1-2 раза в сутки.",
                 contraindications = "• Тяжелая почечная, печеночная или сердечная недостаточность\n• Период лактации (грудного вскармливания)\n• Детский возраст до 6 лет\n• Наследственная непереносимость галактозы\n• Повышенная чувствительность к дротаверину",
@@ -984,6 +898,7 @@ object GeminiService {
                 name = "Аспирин Кардио 100мг",
                 description = "Антиагрегантное средство. Препятствует склеиванию тромбоцитов, снижает риск образования тромбов.",
                 active_substance = "Ацетилсалициловая кислота",
+                composition = "Активное вещество: ацетилсалициловая кислота 100 мг. Вспомогательные вещества: целлюлоза порошкообразная, крахмал кукурузный. Оболочка: сополимер метакриловой кислоты и этилакрилата, натрия лаурилсульфат, полисорбат 80, тальк, triэтилцитрат.",
                 indications = "• Профилактика острого инфаркта миокарда при наличии факторов риска\n• Профилактика повторного инфаркта миокарда\n• Профилактика инсульта и преходящего нарушения мозгового кровообращения\n• Профилактика тромбоэмболии после операций на сосудах",
                 dosage = "Внутрь, перед едой, запивая большим количеством воды. Препарат предназначен для длительного применения. Принимать по 1 таблетке (100 мг) 1 раз в сутки, желательно в одно и то же время.",
                 contraindications = "• Бронхиальная астма, индуцированная приемом салицилатов\n• Острое кровотечение в ЖКТ\n• Беременность (I и III триместры)\n• Печеночная и почечная недостаточность тяжелой степени\n• Возраст до 18 лет",
@@ -997,6 +912,7 @@ object GeminiService {
                 name = "Ксарелто 20мг",
                 description = "Антикоагулянт прямого действия, высокоселективный ингибитор фактора Xa. Предотвращает образование тромбов.",
                 active_substance = "Ривароксабан",
+                composition = "Активное вещество: ривароксабан 20 мг. Вспомогательные вещества: микрокристаллическая целлюлоза, кроскармеллоза натрия, гипромеллоза, лактозы моногидрат, магния стеарат, натрия лаурилсульфат.",
                 indications = "• Профилактика инсульта и системной тромбоэмболии у пациентов с фибрилляцией предсердий\n• Лечение тромбоза глубоких вен (ТГВ) и легочной эмболии (ТЭЛА)\n• Профилактика рецидивов ТГВ и ТЭЛА",
                 dosage = "Внутрь, во время еды. При профилактике инсульта рекомендуемая доза составляет 1 таблетку (20 мг) 1 раз в сутки. Для некоторых групп пациентов доза может быть снижена до 15 мг.",
                 contraindications = "• Клинически значимые активные кровотечения\n• Заболевания печени, протекающие с коагулопатией и риском кровотечения\n• Беременность и период грудного вскармливания\n• Возраст до 18 лет\n• Тяжелая почечная недостаточность (клиренс креатинина <15 мл/мин)",
@@ -1010,6 +926,7 @@ object GeminiService {
                 name = "Парацетамол 500мг",
                 description = "Анальгетик-антипиретик. Обладает выраженным обезболивающим и жаропонижающим действием, слабо выраженным противовоспалительным эффектом.",
                 active_substance = "Парацетамол",
+                composition = "Активное вещество: парацетамол 500 мг. Вспомогательные вещества: крахмал картофельный, стеариновая кислота, лактоза.",
                 indications = "• Болевой синдром слабой и умеренной интенсивности (головная, зубная, мигренозная боли, невралгия, мышечная боль)\n• Повышенная температура тела при простудных заболеваниях и гриппе",
                 dosage = "Внутрь, после еды с большим количеством воды. Взрослым и подросткам старше 12 лет: по 1-2 таблетки (500-1000 мг) до 4 раз в сутки. Максимальная разовая доза — 1000 мг. Максимальная суточная доза — 4000 мг (8 таблеток).",
                 contraindications = "• Тяжелые нарушения функции печени или почек\n• Алкогольная зависимость\n• Детский возраст до 6 лет\n• Повышенная чувствительность к парацетамолу",
@@ -1023,10 +940,11 @@ object GeminiService {
                 name = "Арбидол капсулы 100мг",
                 description = "Противовирусное средство. Специфически подавляет вирусы гриппа А и В, коронавирус, ассоциированный с тяжелым острым респираторным синдромом.",
                 active_substance = "Умифеновир",
+                composition = "Активное вещество: умифеновира гидрохлорида моногидрат 103.5 мг (в пересчете на умифеновира гидрохлорид 100 мг). Вспомогательные вещества: крахмал картофельный, целлюлоза микрокристаллическая, кремния диоксид коллоидный, повидон, кальция стеарат.",
                 indications = "• Профилактика и лечение гриппа А и В, других ОРВИ у взрослых и детей\n• Комплексная терапия острых кишечных ротавирусных инфекций\n• Профилактика послеоперационных инфекционных осложнений",
                 dosage = "Внутрь, до еды. Взрослым и детям старше 12 лет при лечении ОРВИ/гриппа: по 2 капсулы (200 мг) 4 раза в сутки в течение 5 дней. Для неспецифической профилактики в период эпидемии: по 200 мг 2 раза в неделю в течение 3 недель.",
                 contraindications = "• Повышенная чувствительность к умифеновиру\n• Детский возраст до 6 лет (для дозировки 100 мг)\n• Первый триместр беременности (применять только по назначению врача)",
-                side_effects = "Очень редко: allergic реакции (кожная сыпь, зуд, крапивница).",
+                side_effects = "Очень редко: аллергические реакции (кожная сыпь, зуд, крапивница).",
                 special_instructions = "Начало приема препарата необходимо начинать при первых симптомах заболевания (желательно в первые 48 часов). Отрицательного влияния на управление транспортным средством не оказывает."
             )
         }
@@ -1036,6 +954,7 @@ object GeminiService {
                 name = "Энтерофурил капсулы 200мг",
                 description = "Противомикробный препарат широкого спектра действия для лечения кишечных инфекций. Действует исключительно в просвете кишечника и не всасывается.",
                 active_substance = "Нифуроксазид",
+                composition = "Активное вещество: нифуроксазид 200 мг. Вспомогательные вещества: сахароза, крахмал кукурузный, целлюлоза микрокристаллическая, магния стеарат. Капсула: желатин, титана диоксид, краситель хинолиновый желтый, краситель желтый солнечный закат.",
                 indications = "• Острая бактериальная диарея, протекающая без ухудшения общего состояния, повышения температуры тела, интоксикации.",
                 dosage = "Внутрь. Взрослым: по 200 мг (1 капсула) 4 раза в сутки (каждые 6 часов). Максимальная суточная доза - 800 мг. Курс лечения не должен превышать 7 дней.",
                 contraindications = "• Повышенная чувствительность к нифуроксазиду или другим производным нитрофурана\n• Детский возраст до 3 лет (для данной лекарственной формы)\n• Беременность",
@@ -1050,11 +969,14 @@ object GeminiService {
             name = capitalized,
             description = "Фармацевтический лекарственный препарат направленного симптоматического и этиотропного действия. Облегчает состояние больного и нейтрализует симптомы воспалительных, инфекционных или спастических поражений.",
             active_substance = "Клинический активный компонент",
+            composition = "Активное вещество: Клинический активный компонент (согласно торговой марке). Вспомогательные вещества: микрокристаллическая целлюлоза, лактоза, кремния диоксид коллоидный, магния стеарат, компоненты пленочной оболочки.",
             indications = "• Симптоматическая терапия широкого спектра нозологий\n• Облегчение болевых ощущений умеренной степени выраженности\n• Вспомогательное лечение воспалительных и сопутствующих заболеваний",
             dosage = "Внутрь, согласно предписаниям лечащего врача. Стандартная терапевтическая дозировка для взрослых составляет 1-2 таблетки до 3 раз в сутки во время или после приема пищи. Интервал между приемами должен составлять не менее 6-8 часов.",
-            contraindications = "• Гиперчувствительность к компонентам состава препарата\n• Тяжелые органические поражения печени или почек в острой фазе\n• Беременность и период лактации\n• Детский возраст до назначения лечащим врачом",
+            contraindications = "• Прямая чувствительность к компонентам состава препарата\n• Тяжелые органические поражения печени или почек в острой фазе\n• Беременность и период лактации\n• Детский возраст до назначения лечащим врачом",
             side_effects = "В редких случаях отмечаются преходящие желудочно-кишечные расстройства (изжога, тошнота), легкая сонливость или крапивница. При появлении нежелательных симптомов прекратите прием.",
-            special_instructions = "Применять с осторожностью при выполнении работ, требующих высокой концентрации внимания и быстрой реакции. Перед началом курса рекомендуется проконсультироваться с квалифицированным лечащим врачом."
+            special_instructions = "Применять с осторожностью при выполнении работ, требующих высокой концентрации внимания и быстрой реакции. Перед началом курса рекомендуется проконсультироваться с квалифицированным лечащим врачом.",
+            storage_conditions = "Хранить в сухом и темном месте при температуре от 15 °C до 25 °C. Беречь от воздействия прямых солнечных лучей. Хранить вне доступа детей и домашних животных.",
+            interaction = "Существенных нежелательных взаимодействий со стандартными лекарственными препаратами не зарегистрировано. Не рекомендуется совместный прием с алкогольными напитками из-за риска повышения гепатотоксичности."
         )
     }
 }

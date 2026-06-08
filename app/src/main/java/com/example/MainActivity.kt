@@ -61,6 +61,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.ArrowCircleRight
@@ -94,6 +96,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -105,6 +109,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
@@ -489,8 +494,8 @@ fun MainAppScreen(viewModel: MainViewModel = viewModel()) {
                 ScanResultDialog(
                     result = data,
                     onDismiss = { viewModel.resetScanState() },
-                    onSave = { updatedData, notes, totalQty, dosage, freq ->
-                        viewModel.saveToCabinet(updatedData, notes, totalQty, dosage, freq, imgPath)
+                    onSave = { updatedData, notes, totalQty, remainingQty, dosage, freq ->
+                        viewModel.saveToCabinet(updatedData, notes, totalQty, remainingQty, dosage, freq, imgPath)
                     }
                 )
             } else if (scanUiState is ScanUiState.Processing) {
@@ -577,8 +582,8 @@ fun MainAppScreen(viewModel: MainViewModel = viewModel()) {
             if (showManualAddDialog) {
                 AddMedicineManualDialog(
                     onDismiss = { showManualAddDialog = false },
-                    onSave = { name, expDate, notes, batch, gtin, totalQty, dosage, freq, tags ->
-                        viewModel.addMedicineManually(name, expDate, notes, batch, gtin, totalQty, dosage, freq, tags)
+                    onSave = { name, expDate, notes, batch, gtin, totalQty, remainingQty, dosage, freq, tags ->
+                        viewModel.addMedicineManually(name, expDate, notes, batch, gtin, totalQty, remainingQty, dosage, freq, tags)
                         showManualAddDialog = false
                     }
                 )
@@ -1545,7 +1550,7 @@ fun PhotoRecognitionScreen(viewModel: MainViewModel) {
         ) {
             if (cameraPermissionState.status.isGranted) {
                 PackagingCameraViewfinder(
-                    onPhotoCaptured = { base64, path -> viewModel.parsePackagePhoto(base64, null, path) }
+                    onPhotoCaptured = { base64, path -> viewModel.parsePackagePhoto(base64, path) }
                 )
             } else {
                 Box(
@@ -2119,7 +2124,7 @@ fun AnalogItemCard(analog: MedicineAnalog) {
 fun ScanResultDialog(
     result: ParsedZnakResult,
     onDismiss: () -> Unit,
-    onSave: (updatedResult: ParsedZnakResult, notes: String, totalPackageCount: Int, intakeDosage: Double, intakeFrequency: String) -> Unit
+    onSave: (updatedResult: ParsedZnakResult, notes: String, totalPackageCount: Int, remainingCount: Double, intakeDosage: Double, intakeFrequency: String) -> Unit
 ) {
     var medicineName by remember { mutableStateOf(result.name) }
     var expirationDate by remember { mutableStateOf(result.expiration_date) }
@@ -2131,12 +2136,20 @@ fun ScanResultDialog(
     var intakeDosage by remember { mutableStateOf("0.0") }
     var intakeFrequency by remember { mutableStateOf("as_needed") }
 
+    var isPartialPackage by remember { mutableStateOf(false) }
+    var remainingStockInput by remember { mutableStateOf(result.package_count?.toString() ?: "30") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(
                 onClick = {
                     val totalQty = totalPackageCount.toIntOrNull() ?: 30
+                    val remainingQty = if (isPartialPackage) {
+                        remainingStockInput.toDoubleOrNull() ?: totalQty.toDouble()
+                    } else {
+                        totalQty.toDouble()
+                    }
                     val dosage = intakeDosage.toDoubleOrNull() ?: 0.0
                     val tagsList = tagsString.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                     val updatedResult = result.copy(
@@ -2146,7 +2159,7 @@ fun ScanResultDialog(
                         gtin = gtin.trim(),
                         tags = tagsList
                     )
-                    onSave(updatedResult, rawNotes, totalQty, dosage, intakeFrequency)
+                    onSave(updatedResult, rawNotes, totalQty, remainingQty, dosage, intakeFrequency)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MintPrimary),
                 modifier = Modifier.testTag("btn_save_to_cabinet")
@@ -2245,12 +2258,61 @@ fun ScanResultDialog(
 
                 OutlinedTextField(
                     value = totalPackageCount,
-                    onValueChange = { totalPackageCount = it },
+                    onValueChange = { newValue ->
+                        totalPackageCount = newValue
+                        if (!isPartialPackage) {
+                            remainingStockInput = newValue
+                        }
+                    },
                     label = { Text("Количество в упаковке *") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            isPartialPackage = !isPartialPackage
+                            if (isPartialPackage) {
+                                remainingStockInput = totalPackageCount
+                            }
+                        }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Checkbox(
+                        checked = isPartialPackage,
+                        onCheckedChange = { checked ->
+                            isPartialPackage = checked
+                            if (checked) {
+                                remainingStockInput = totalPackageCount
+                            }
+                        },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = MintPrimary,
+                            uncheckedColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Вскрытая (неполная) упаковка",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                if (isPartialPackage) {
+                    OutlinedTextField(
+                        value = remainingStockInput,
+                        onValueChange = { remainingStockInput = it },
+                        label = { Text("Реальный остаток в упаковке *") },
+                        placeholder = { Text("например: 15 или 7.5") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("scan_med_remaining_field")
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -2691,7 +2753,7 @@ fun MedicineDetailsDialog(
                         onClick = { showAddToPillboxForm = true },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MintPrimary.copy(alpha = 0.12f),
-                            contentColor = MintDarkText
+                            contentColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.onSurface else MintDarkText
                         ),
                         modifier = Modifier.fillMaxWidth().testTag("add_to_pillbox_action_button"),
                         shape = RoundedCornerShape(12.dp)
@@ -2713,7 +2775,7 @@ fun MedicineDetailsDialog(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Добавить в таблетницу", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MintDarkText)
+                            Text("Добавить в таблетницу", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.onSurface else MintDarkText)
                             
                             if (pillboxes.isEmpty()) {
                                 Text(
@@ -2756,7 +2818,7 @@ fun MedicineDetailsDialog(
                                             Text(
                                                 text = pb.name,
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected) MintDarkText else MaterialTheme.colorScheme.onSurface
+                                                color = if (isSelected) (if (isSystemInDarkTheme()) MaterialTheme.colorScheme.onSurface else MintDarkText) else MaterialTheme.colorScheme.onSurface
                                             )
                                         }
                                     }
@@ -3092,26 +3154,70 @@ fun switchInstructionUiState(
         is InstructionUiState.Success -> {
             val instruction = instructionUiState.instruction
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f),
-                        RoundedCornerShape(12.dp)
-                    )
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        RoundedCornerShape(12.dp)
-                    )
-                    .padding(12.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                InstructionSection(label = "Действующее вещество", content = instruction.active_substance, isPrimary = true)
-                InstructionSection(label = "Фармакоррекция", content = instruction.description)
-                InstructionSection(label = "Показания к применению", content = instruction.indications)
-                InstructionSection(label = "Способ применения и дозы", content = instruction.dosage, highlight = true)
-                InstructionSection(label = "Противопоказания", content = instruction.contraindications)
-                InstructionSection(label = "Побочные действия", content = instruction.side_effects)
-                InstructionSection(label = "Особые указания ИИ", content = instruction.special_instructions)
+                // Действующее вещество - над инструкцией в красивой карточке
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MintPrimary.copy(alpha = 0.08f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HealthAndSafety,
+                            contentDescription = null,
+                            tint = MintPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Действующее вещество (МНН):",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = instruction.active_substance,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.onSurface else MintDarkText
+                            )
+                        }
+                    }
+                }
+
+                // Разделы инструкции (по умолчанию свернуты)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .padding(12.dp)
+                ) {
+                    InstructionSection(label = "Способ применения и дозы", content = instruction.dosage, highlight = true, initiallyExpanded = true)
+                    InstructionSection(label = "Описание препарата", content = instruction.description)
+                    InstructionSection(label = "Полный состав лекарства", content = instruction.composition)
+                    InstructionSection(label = "Показания к применению", content = instruction.indications)
+                    InstructionSection(label = "Противопоказания", content = instruction.contraindications)
+                    InstructionSection(label = "Побочные действия", content = instruction.side_effects)
+                    InstructionSection(label = "Взаимодействие с другими препаратами", content = instruction.interaction)
+                    InstructionSection(label = "Условия хранения", content = instruction.storage_conditions)
+                    InstructionSection(label = "Особые указания ИИ", content = instruction.special_instructions)
+                }
             }
         }
 
@@ -3145,24 +3251,44 @@ fun InstructionSection(
     label: String,
     content: String,
     isPrimary: Boolean = false,
-    highlight: Boolean = false
+    highlight: Boolean = false,
+    initiallyExpanded: Boolean = false
 ) {
     if (content.isNotBlank()) {
-        Column(modifier = Modifier.padding(vertical = 6.dp)) {
-            Text(
-                text = label,
-                style = if (isPrimary) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (isPrimary) MintPrimary else if (highlight) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = content,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 18.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
+        var isExpanded by remember { mutableStateOf(initiallyExpanded) }
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = label,
+                    style = if (isPrimary) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isPrimary) MintPrimary else if (highlight) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Свернуть" else "Развернуть",
+                    tint = if (isPrimary) MintPrimary else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
         }
     }
@@ -3173,7 +3299,7 @@ fun InstructionSection(
 @Composable
 fun AddMedicineManualDialog(
     onDismiss: () -> Unit,
-    onSave: (name: String, expDate: String, notes: String, batch: String, gtin: String, totalPackageCount: Int, intakeDosage: Double, intakeFrequency: String, tags: String) -> Unit
+    onSave: (name: String, expDate: String, notes: String, batch: String, gtin: String, totalPackageCount: Int, remainingCount: Double, intakeDosage: Double, intakeFrequency: String, tags: String) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var expirationDate by remember { mutableStateOf("") }
@@ -3184,6 +3310,9 @@ fun AddMedicineManualDialog(
     var totalPackageCount by remember { mutableStateOf("30") }
     var intakeDosage by remember { mutableStateOf("0.0") }
     var intakeFrequency by remember { mutableStateOf("as_needed") }
+
+    var isPartialPackage by remember { mutableStateOf(false) }
+    var remainingStockInput by remember { mutableStateOf("30") }
 
     var showError by remember { mutableStateOf("") }
 
@@ -3215,8 +3344,13 @@ fun AddMedicineManualDialog(
                         return@Button
                     }
                     val pkgCount = totalPackageCount.toIntOrNull() ?: 30
+                    val remainingQty = if (isPartialPackage) {
+                        remainingStockInput.toDoubleOrNull() ?: pkgCount.toDouble()
+                    } else {
+                        pkgCount.toDouble()
+                    }
                     val dosage = intakeDosage.toDoubleOrNull() ?: 0.0
-                    onSave(name.trim(), expirationDate.trim(), notes.trim(), batch.trim(), gtin.trim(), pkgCount, dosage, intakeFrequency, tags.trim())
+                    onSave(name.trim(), expirationDate.trim(), notes.trim(), batch.trim(), gtin.trim(), pkgCount, remainingQty, dosage, intakeFrequency, tags.trim())
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MintPrimary)
             ) {
@@ -3294,13 +3428,62 @@ fun AddMedicineManualDialog(
 
                 OutlinedTextField(
                     value = totalPackageCount,
-                    onValueChange = { totalPackageCount = it },
+                    onValueChange = { newValue ->
+                        totalPackageCount = newValue
+                        if (!isPartialPackage) {
+                            remainingStockInput = newValue
+                        }
+                    },
                     label = { Text("Количество в упаковке *") },
                     placeholder = { Text("например: 30") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            isPartialPackage = !isPartialPackage
+                            if (isPartialPackage) {
+                                remainingStockInput = totalPackageCount
+                            }
+                        }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Checkbox(
+                        checked = isPartialPackage,
+                        onCheckedChange = { checked ->
+                            isPartialPackage = checked
+                            if (checked) {
+                                remainingStockInput = totalPackageCount
+                            }
+                        },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = MintPrimary,
+                            uncheckedColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Вскрытая (неполная) упаковка",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                if (isPartialPackage) {
+                    OutlinedTextField(
+                        value = remainingStockInput,
+                        onValueChange = { remainingStockInput = it },
+                        label = { Text("Реальный остаток в упаковке *") },
+                        placeholder = { Text("например: 15 или 7.5") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("add_manual_remaining_field")
+                    )
+                }
 
                 OutlinedTextField(
                     value = batch,
@@ -3873,6 +4056,301 @@ fun SettingsScreen(viewModel: MainViewModel) {
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(top = 4.dp)
                         )
+                    }
+                }
+            }
+        }
+
+        // Section 5: Customizable Gemini/Grok API and diagnostics
+        item {
+            val customApiKey by viewModel.customGeminiApiKey.collectAsStateWithLifecycle()
+            val customBaseUrl by viewModel.customGeminiBaseUrl.collectAsStateWithLifecycle()
+            
+            val activeAiProvider by viewModel.selectedAiProvider.collectAsStateWithLifecycle()
+            val customGrokApiKey by viewModel.customGrokApiKey.collectAsStateWithLifecycle()
+            val customGrokBaseUrl by viewModel.customGrokBaseUrl.collectAsStateWithLifecycle()
+            val customGrokModel by viewModel.customGrokModel.collectAsStateWithLifecycle()
+
+            val aiTestResult by viewModel.aiTestResult.collectAsStateWithLifecycle()
+            val aiTestLoading by viewModel.aiTestLoading.collectAsStateWithLifecycle()
+            val apiKeyStatus by viewModel.geminiApiKeyStatus.collectAsStateWithLifecycle()
+
+            var showPassSecret by remember { mutableStateOf(false) }
+            var showGrokPassSecret by remember { mutableStateOf(false) }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SmartToy,
+                            contentDescription = "Настройка ИИ",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Настройки ИИ (Gemini / Grok)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
+
+                    Text(
+                        text = "Выберите основной ИИ-провайдер для распознавания медицинских упаковок и поиска аналогов. В случае ошибки выбранного провайдера, приложение автоматически переключится на другой.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Selection Row
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Основной ИИ-провайдер:",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.updateSelectedAiProvider("gemini") },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (activeAiProvider == "gemini") MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                    contentColor = if (activeAiProvider == "gemini") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                ),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (activeAiProvider == "gemini") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                ),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SmartToy,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Google Gemini", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.updateSelectedAiProvider("grok") },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (activeAiProvider == "grok") MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                    contentColor = if (activeAiProvider == "grok") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                ),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (activeAiProvider == "grok") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                ),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("xAI Grok", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+
+                    // Real-time API key state box
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(12.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Текущий статус API ключей:",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = apiKeyStatus,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Gemini Sub-section
+                    Text(
+                        text = "Параметры Google Gemini:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+
+                    // API Key Field
+                    OutlinedTextField(
+                        value = customApiKey,
+                        onValueChange = { viewModel.updateCustomGeminiApiKey(it) },
+                        label = { Text("Личный API-ключ Gemini (необязательно)") },
+                        placeholder = { Text("по умолчанию используется встроенный ключ") },
+                        singleLine = true,
+                        visualTransformation = if (showPassSecret) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showPassSecret = !showPassSecret }) {
+                                Icon(
+                                    imageVector = if (showPassSecret) Icons.Default.Close else Icons.Default.Add,
+                                    contentDescription = if (showPassSecret) "Скрыть ключ" else "Показать ключ"
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Base URL / Proxy Prefix Field
+                    OutlinedTextField(
+                        value = customBaseUrl,
+                        onValueChange = { viewModel.updateCustomGeminiBaseUrl(it) },
+                        label = { Text("Сервер API (Прокси / Зеркало) Gemini") },
+                        placeholder = { Text("https://generativelanguage.googleapis.com/") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        text = "Пример зеркала Gemini (слэш на конце обязателен): https://gateway.ai.cloudflare.com/v1/.../google-ai/",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
+
+                    // Grok Sub-section
+                    Text(
+                        text = "Параметры xAI Grok:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = customGrokApiKey,
+                        onValueChange = { viewModel.updateCustomGrokApiKey(it) },
+                        label = { Text("Личный API-ключ Grok (необязательно)") },
+                        placeholder = { Text("по умолчанию используется встроенный ключ") },
+                        singleLine = true,
+                        visualTransformation = if (showGrokPassSecret) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showGrokPassSecret = !showGrokPassSecret }) {
+                                Icon(
+                                    imageVector = if (showGrokPassSecret) Icons.Default.Close else Icons.Default.Add,
+                                    contentDescription = if (showGrokPassSecret) "Скрыть ключ" else "Показать ключ"
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = customGrokBaseUrl,
+                        onValueChange = { viewModel.updateCustomGrokBaseUrl(it) },
+                        label = { Text("Сервер API / Endpoint Grok") },
+                        placeholder = { Text("https://api.x.ai/v1") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = customGrokModel,
+                        onValueChange = { viewModel.updateCustomGrokModel(it) },
+                        label = { Text("Модель Grok") },
+                        placeholder = { Text("grok-2-latest") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
+
+                    // Connection test action
+                    Button(
+                        onClick = { viewModel.runAiDiagnostics() },
+                        enabled = !aiTestLoading,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (aiTestLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Проверка...", style = MaterialTheme.typography.bodyMedium)
+                        } else {
+                            Text("Проверить соединение с ИИ", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+
+                    if (aiTestResult != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (aiTestResult!!.startsWith("Успешное"))
+                                        Color(0xFFE8F5E9)
+                                    else
+                                        Color(0xFFFFEBEE),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (aiTestResult!!.startsWith("Успешное"))
+                                        Color(0xFF81C784)
+                                    else
+                                        Color(0xFFE57373),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = aiTestResult!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (aiTestResult!!.startsWith("Успешное"))
+                                    Color(0xFF1B5E20)
+                                else
+                                    Color(0xFFC62828),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -4889,6 +5367,41 @@ fun PillboxScreen(viewModel: MainViewModel) {
                                         )
                                     }
                                 }
+                            }
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
+
+                            // Pillbox notification toggle bar
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (pillbox.notificationsEnabled) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                        contentDescription = "Статус уведомлений",
+                                        tint = if (pillbox.notificationsEnabled) MintPrimary else MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = if (pillbox.notificationsEnabled) "Уведомления включены" else "Уведомления отключены",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (pillbox.notificationsEnabled) MintDarkText else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                androidx.compose.material3.Switch(
+                                    checked = pillbox.notificationsEnabled,
+                                    onCheckedChange = { viewModel.togglePillboxNotifications(pillbox) },
+                                    modifier = Modifier.testTag("pillbox_notifications_toggle_${pillbox.id}")
+                                )
                             }
 
                             HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))

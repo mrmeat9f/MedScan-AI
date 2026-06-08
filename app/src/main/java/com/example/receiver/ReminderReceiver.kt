@@ -28,17 +28,22 @@ class ReminderReceiver : BroadcastReceiver() {
                 try {
                     val db = AppDatabase.getDatabase(context)
                     val allEntries = db.pillboxDao().getAllPillboxEntriesDirect()
+                    val allPillboxes = db.pillboxDao().getAllPillboxesDirect()
+                    val disabledPillboxIds = allPillboxes.filter { !it.notificationsEnabled }.map { it.id }.toSet()
+
                     allEntries.forEach { entry ->
-                        schedulePillReminder(
-                            context = context,
-                            entryId = entry.id,
-                            medicineName = entry.medicineName,
-                            dosage = entry.dosage,
-                            timeStr = entry.preferredTime,
-                            periodicityDays = entry.periodicityDays
-                        )
+                        if (entry.pillboxId !in disabledPillboxIds) {
+                            schedulePillReminder(
+                                context = context,
+                                entryId = entry.id,
+                                medicineName = entry.medicineName,
+                                dosage = entry.dosage,
+                                timeStr = entry.preferredTime,
+                                periodicityDays = entry.periodicityDays
+                            )
+                        }
                     }
-                    Log.d("ReminderReceiver", "Rescheduled ${allEntries.size} reminders successfully on boot.")
+                    Log.d("ReminderReceiver", "Rescheduled active reminders successfully on boot.")
                 } catch (e: Exception) {
                     Log.e("ReminderReceiver", "Error rescheduling reminders on boot", e)
                 } finally {
@@ -64,23 +69,22 @@ class ReminderReceiver : BroadcastReceiver() {
                 val db = AppDatabase.getDatabase(context)
                 val allEntries = db.pillboxDao().getAllPillboxEntriesDirect()
                 
-                // Filter matching entries
-                val matchingEntries = allEntries.filter { it.preferredTime == timeStr }
+                // Fetch pillboxes to check notifications enabled status
+                val allPillboxes = db.pillboxDao().getAllPillboxesDirect()
+                val disabledPillboxIds = allPillboxes.filter { !it.notificationsEnabled }.map { it.id }.toSet()
                 
-                val medicinesToTake = if (matchingEntries.isNotEmpty()) {
-                    matchingEntries
-                } else {
-                    listOf(
-                        PillboxEntry(
-                            id = entryId,
-                            pillboxId = 0,
-                            medicineName = medicineName,
-                            dosage = dosage,
-                            preferredTime = timeStr,
-                            periodicityDays = periodicityDays
-                        )
-                    )
+                // Filter matching entries
+                val matchingEntries = allEntries.filter { it.preferredTime == timeStr && it.pillboxId !in disabledPillboxIds }
+                
+                if (matchingEntries.isEmpty()) {
+                    Log.d("ReminderReceiver", "All matching entries are in a disabled pillbox or don't exist. Skipping visual notification.")
+                    if (entryId != -1) {
+                        schedulePillReminder(context, entryId, medicineName, dosage, timeStr, periodicityDays)
+                    }
+                    return@launch
                 }
+                
+                val medicinesToTake = matchingEntries
 
                 // Format: Name - dosage шт
                 val formattedLines = medicinesToTake.map { entry ->

@@ -91,6 +91,103 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // SharedPreferences for configuration
     private val prefs = application.getSharedPreferences("medscan_prefs", android.content.Context.MODE_PRIVATE)
 
+    // --- Customizable Gemini API settings ---
+    private val _customGeminiApiKey = MutableStateFlow(prefs.getString("custom_gemini_api_key", "") ?: "")
+    val customGeminiApiKey: StateFlow<String> = _customGeminiApiKey.asStateFlow()
+
+    private val _customGeminiBaseUrl = MutableStateFlow(prefs.getString("custom_gemini_base_url", "https://generativelanguage.googleapis.com/") ?: "https://generativelanguage.googleapis.com/")
+    val customGeminiBaseUrl: StateFlow<String> = _customGeminiBaseUrl.asStateFlow()
+
+    private val _geminiApiKeyStatus = MutableStateFlow("")
+    val geminiApiKeyStatus: StateFlow<String> = _geminiApiKeyStatus.asStateFlow()
+
+    private val _aiTestResult = MutableStateFlow<String?>(null)
+    val aiTestResult: StateFlow<String?> = _aiTestResult.asStateFlow()
+
+    private val _aiTestLoading = MutableStateFlow(false)
+    val aiTestLoading: StateFlow<Boolean> = _aiTestLoading.asStateFlow()
+
+    // --- Selected AI Provider ("gemini" or "grok") ---
+    private val _selectedAiProvider = MutableStateFlow(prefs.getString("selected_ai_provider", "gemini") ?: "gemini")
+    val selectedAiProvider: StateFlow<String> = _selectedAiProvider.asStateFlow()
+
+    // --- Customizable Grok API settings ---
+    private val _customGrokApiKey = MutableStateFlow(prefs.getString("custom_grok_api_key", "") ?: "")
+    val customGrokApiKey: StateFlow<String> = _customGrokApiKey.asStateFlow()
+
+    private val _customGrokBaseUrl = MutableStateFlow(prefs.getString("custom_grok_base_url", "https://api.x.ai/v1") ?: "https://api.x.ai/v1")
+    val customGrokBaseUrl: StateFlow<String> = _customGrokBaseUrl.asStateFlow()
+
+    private val _customGrokModel = MutableStateFlow(prefs.getString("custom_grok_model", "grok-2-latest") ?: "grok-2-latest")
+    val customGrokModel: StateFlow<String> = _customGrokModel.asStateFlow()
+
+    private fun updateApiKeyStatus() {
+        _geminiApiKeyStatus.value = GeminiService.getApiKeyStatusDescription()
+    }
+
+    fun updateSelectedAiProvider(provider: String) {
+        val clean = provider.trim().lowercase()
+        val finalProvider = if (clean == "grok") "grok" else "gemini"
+        prefs.edit().putString("selected_ai_provider", finalProvider).apply()
+        _selectedAiProvider.value = finalProvider
+        GeminiService.selectedAiProvider = finalProvider
+        updateApiKeyStatus()
+    }
+
+    fun updateCustomGeminiApiKey(key: String) {
+        prefs.edit().putString("custom_gemini_api_key", key.trim()).apply()
+        _customGeminiApiKey.value = key.trim()
+        GeminiService.appApiKey = key.trim()
+        updateApiKeyStatus()
+    }
+
+    fun updateCustomGeminiBaseUrl(url: String) {
+        val cleanUrl = if (url.trim().isNotEmpty() && !url.trim().endsWith("/")) "${url.trim()}/" else url.trim()
+        prefs.edit().putString("custom_gemini_base_url", cleanUrl).apply()
+        _customGeminiBaseUrl.value = cleanUrl
+        GeminiService.appBaseUrl = cleanUrl
+    }
+
+    fun updateCustomGrokApiKey(key: String) {
+        prefs.edit().putString("custom_grok_api_key", key.trim()).apply()
+        _customGrokApiKey.value = key.trim()
+        GeminiService.appGrokApiKey = key.trim()
+        updateApiKeyStatus()
+    }
+
+    fun updateCustomGrokBaseUrl(url: String) {
+        val cleanUrl = url.trim()
+        prefs.edit().putString("custom_grok_base_url", cleanUrl).apply()
+        _customGrokBaseUrl.value = cleanUrl
+        GeminiService.appGrokBaseUrl = cleanUrl
+    }
+
+    fun updateCustomGrokModel(model: String) {
+        val cleanModel = model.trim()
+        prefs.edit().putString("custom_grok_model", cleanModel).apply()
+        _customGrokModel.value = cleanModel
+        GeminiService.appGrokModel = cleanModel
+    }
+
+    fun clearAiTestResult() {
+        _aiTestResult.value = null
+    }
+
+    fun runAiDiagnostics() {
+        viewModelScope.launch {
+            _aiTestLoading.value = true
+            _aiTestResult.value = "Проверяем подключение к ИИ..."
+            try {
+                val result = GeminiService.testConnection()
+                _aiTestResult.value = result
+            } catch (e: Exception) {
+                _aiTestResult.value = "Ошибка диагностики: ${e.localizedMessage}"
+            } finally {
+                _aiTestLoading.value = false
+            }
+        }
+    }
+
     private val _appThemeMode = MutableStateFlow(prefs.getInt("theme_mode", 0)) // 0=System, 1=Light, 2=Dark
     val appThemeMode: StateFlow<Int> = _appThemeMode.asStateFlow()
 
@@ -160,6 +257,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        // Initialize dynamic Gemini/Grok service configuration on view model creation
+        GeminiService.selectedAiProvider = prefs.getString("selected_ai_provider", "gemini") ?: "gemini"
+        GeminiService.appApiKey = prefs.getString("custom_gemini_api_key", "") ?: ""
+        GeminiService.appBaseUrl = prefs.getString("custom_gemini_base_url", "https://generativelanguage.googleapis.com/") ?: "https://generativelanguage.googleapis.com/"
+        GeminiService.appGrokApiKey = prefs.getString("custom_grok_api_key", "") ?: ""
+        GeminiService.appGrokBaseUrl = prefs.getString("custom_grok_base_url", "https://api.x.ai/v1") ?: "https://api.x.ai/v1"
+        GeminiService.appGrokModel = prefs.getString("custom_grok_model", "grok-2-latest") ?: "grok-2-latest"
+        updateApiKeyStatus()
+
         // Clean any duplicate medicines that might have been saved due to concurrent syncs
         cleanDuplicateMedicines()
 
@@ -506,11 +612,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Analyzes photo of a medicine package using Gemini.
      */
-    fun parsePackagePhoto(base64Image: String, simulatedName: String? = null, imagePath: String? = null) {
+    fun parsePackagePhoto(base64Image: String, imagePath: String? = null) {
         viewModelScope.launch {
             _scanUiState.value = ScanUiState.Processing
             try {
-                val parsedResult = GeminiService.parsePackagePhoto(base64Image, simulatedName)
+                val parsedResult = GeminiService.parsePackagePhoto(base64Image)
                 if (parsedResult.serial.isNotEmpty()) {
                     val duplicate = medicines.value.find { it.serial.trim() == parsedResult.serial.trim() }
                     if (duplicate != null) {
@@ -549,6 +655,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         parsedResult: ParsedZnakResult,
         customNotes: String = "",
         totalPackageCount: Int = 30,
+        remainingCount: Double? = null,
         intakeDosage: Double = 0.0,
         intakeFrequency: String = "as_needed",
         packageImagePath: String? = null
@@ -580,7 +687,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // Delete the temporary raw file
                         try { rawFile.delete() } catch(e: Exception) {}
                         destFile.absolutePath
-                    } else {
+                     } else {
                         null
                     }
                 } catch (e: Exception) {
@@ -599,7 +706,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 batch = parsedResult.batch,
                 notes = customNotes,
                 totalPackageCount = totalPackageCount,
-                remainingCount = totalPackageCount.toDouble(),
+                remainingCount = remainingCount ?: totalPackageCount.toDouble(),
                 intakeDosage = intakeDosage,
                 intakeFrequency = intakeFrequency,
                 lastIntakeDecayTimestamp = System.currentTimeMillis(),
@@ -624,6 +731,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         batch: String = "",
         gtin: String = "",
         totalPackageCount: Int = 30,
+        remainingCount: Double? = null,
         intakeDosage: Double = 0.0,
         intakeFrequency: String = "as_needed",
         tags: String = ""
@@ -639,7 +747,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 batch = batch,
                 notes = notes,
                 totalPackageCount = totalPackageCount,
-                remainingCount = totalPackageCount.toDouble(),
+                remainingCount = remainingCount ?: totalPackageCount.toDouble(),
                 intakeDosage = intakeDosage,
                 intakeFrequency = intakeFrequency,
                 lastIntakeDecayTimestamp = System.currentTimeMillis(),
@@ -951,6 +1059,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun renamePillbox(pillbox: com.example.data.Pillbox, newName: String) {
         viewModelScope.launch {
             repository.updatePillbox(pillbox.copy(name = newName))
+        }
+    }
+
+    fun togglePillboxNotifications(pillbox: com.example.data.Pillbox) {
+        viewModelScope.launch {
+            val updatedPillbox = pillbox.copy(notificationsEnabled = !pillbox.notificationsEnabled)
+            repository.updatePillbox(updatedPillbox)
+            
+            val context = getApplication<Application>()
+            val entries = repository.getAllPillboxEntriesDirect().filter { it.pillboxId == pillbox.id }
+            
+            if (updatedPillbox.notificationsEnabled) {
+                // Sched reminders again
+                entries.forEach { entry ->
+                    com.example.receiver.ReminderReceiver.schedulePillReminder(
+                        context = context,
+                        entryId = entry.id,
+                        medicineName = entry.medicineName,
+                        dosage = entry.dosage,
+                        timeStr = entry.preferredTime,
+                        periodicityDays = entry.periodicityDays
+                    )
+                }
+            } else {
+                // Cancel existing alarms
+                entries.forEach { entry ->
+                    com.example.receiver.ReminderReceiver.cancelPillReminder(context, entry.id)
+                }
+            }
         }
     }
 
