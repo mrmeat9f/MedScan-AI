@@ -177,6 +177,8 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+data class IntakeItem(val time: String, val dosage: String) : java.io.Serializable
+
 class MainActivity : ComponentActivity() {
     private var notificationIntentState by mutableStateOf<Intent?>(null)
 
@@ -404,8 +406,10 @@ fun MainAppScreen(viewModel: MainViewModel = viewModel()) {
                     onUpdateMedicine = { updated -> viewModel.updateMedicine(updated) },
                     onManualTake = { amount -> viewModel.deductMedicineByCount(medicine, amount) },
                     pillboxes = pillboxes,
-                    onAddToPillbox = { pillboxId, dosage, preferredTime, periodicityDays ->
-                        viewModel.addPillboxEntry(pillboxId, medicine.name, dosage, preferredTime, periodicityDays)
+                    onAddToPillbox = { pillboxId, intakes, periodicityDays ->
+                        intakes.forEach { (dosage, preferredTime) ->
+                            viewModel.addPillboxEntry(pillboxId, medicine.name, dosage, preferredTime, periodicityDays)
+                        }
                     }
                 )
             }
@@ -2379,7 +2383,7 @@ fun MedicineDetailsDialog(
     onUpdateMedicine: (Medicine) -> Unit,
     onManualTake: (Double) -> Unit,
     pillboxes: List<com.example.data.Pillbox>,
-    onAddToPillbox: (pillboxId: Int, dosage: Double, preferredTime: String, periodicityDays: Int) -> Unit
+    onAddToPillbox: (pillboxId: Int, intakes: List<Pair<Double, String>>, periodicityDays: Int) -> Unit
 ) {
     var editNotesText by remember(medicine.id) { mutableStateOf(medicine.notes) }
     var isEditingNotes by remember(medicine.id) { mutableStateOf(false) }
@@ -2391,7 +2395,11 @@ fun MedicineDetailsDialog(
     var selectedPillboxId by remember(medicine.id, pillboxes) { mutableStateOf(pillboxes.firstOrNull()?.id ?: 0) }
     var inputPillboxDosage by remember(medicine.id) { mutableStateOf(medicine.intakeDosage.toString()) }
     var inputPillboxTime by remember(medicine.id) { mutableStateOf("08:00") }
-    var inputPillboxPeriodicity by remember(medicine.id) { mutableStateOf(1) } // 1 = каждый день, 2 = через день
+    var inputPillboxPeriodicity by remember(medicine.id) { mutableStateOf(1) } // 1 = каждый день, 2 = через день, 4 = несколько раз в день
+
+    var isMultipleTimesADay by remember(medicine.id) { mutableStateOf(false) }
+    var numIntakesStr by remember(medicine.id) { mutableStateOf("1") }
+    var multipleIntakes by remember(medicine.id) { mutableStateOf(listOf(IntakeItem("08:00", "1.0"))) }
 
     var isEditingSchedule by remember(medicine.id) { mutableStateOf(false) }
     var editDosage by remember(medicine.id) { mutableStateOf(medicine.intakeDosage.toString()) }
@@ -2826,44 +2834,46 @@ fun MedicineDetailsDialog(
                                 
                                 Spacer(modifier = Modifier.height(4.dp))
                                 
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    val (initH, initM) = remember(inputPillboxTime) {
-                                        val p = inputPillboxTime.split(":")
-                                        val h = p.getOrNull(0)?.toIntOrNull() ?: 8
-                                        val m = p.getOrNull(1)?.toIntOrNull() ?: 0
-                                        h to m
+                                if (!isMultipleTimesADay) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val (initH, initM) = remember(inputPillboxTime) {
+                                            val p = inputPillboxTime.split(":")
+                                            val h = p.getOrNull(0)?.toIntOrNull() ?: 8
+                                            val m = p.getOrNull(1)?.toIntOrNull() ?: 0
+                                            h to m
+                                        }
+                                        val context = LocalContext.current
+                                        
+                                        Button(
+                                            onClick = {
+                                                android.app.TimePickerDialog(
+                                                    context,
+                                                    { _, hour, minute ->
+                                                        inputPillboxTime = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
+                                                    },
+                                                    initH,
+                                                    initM,
+                                                    true
+                                                ).show()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp), tint = MintPrimary)
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Время: $inputPillboxTime", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                        }
+                                        
+                                        OutlinedTextField(
+                                            value = inputPillboxDosage,
+                                            onValueChange = { inputPillboxDosage = it },
+                                            label = { Text("Доза") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f)
+                                        )
                                     }
-                                    val context = LocalContext.current
-                                    
-                                    Button(
-                                        onClick = {
-                                            android.app.TimePickerDialog(
-                                                context,
-                                                { _, hour, minute ->
-                                                    inputPillboxTime = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
-                                                },
-                                                initH,
-                                                initM,
-                                                true
-                                            ).show()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                                        modifier = Modifier.weight(1f),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp), tint = MintPrimary)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Время: $inputPillboxTime", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    }
-                                    
-                                    OutlinedTextField(
-                                        value = inputPillboxDosage,
-                                        onValueChange = { inputPillboxDosage = it },
-                                        label = { Text("Доза") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
-                                    )
                                 }
                                 
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -2872,10 +2882,17 @@ fun MedicineDetailsDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    listOf(1 to "Каждый день", 2 to "Через день", 3 to "Каждые 3 дня").forEach { (days, label) ->
-                                        val isSelected = inputPillboxPeriodicity == days
+                                    listOf(1 to "Каждый день", 2 to "Через день", 3 to "Каждые 3 дня", 4 to "Несколько раз в день").forEach { (days, label) ->
+                                        val isSelected = (days == 4 && isMultipleTimesADay) || (days != 4 && !isMultipleTimesADay && inputPillboxPeriodicity == days)
                                         Button(
-                                            onClick = { inputPillboxPeriodicity = days },
+                                            onClick = {
+                                                if (days == 4) {
+                                                    isMultipleTimesADay = true
+                                                } else {
+                                                    isMultipleTimesADay = false
+                                                    inputPillboxPeriodicity = days
+                                                }
+                                            },
                                             modifier = Modifier.weight(1f),
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (isSelected) MintPrimary else MaterialTheme.colorScheme.secondaryContainer,
@@ -2885,6 +2902,102 @@ fun MedicineDetailsDialog(
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                                         ) {
                                             Text(label, fontSize = 10.sp, maxLines = 1)
+                                        }
+                                    }
+                                }
+                                
+                                if (isMultipleTimesADay) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = numIntakesStr,
+                                        onValueChange = { input ->
+                                            val filtered = input.filter { it.isDigit() }
+                                            numIntakesStr = filtered
+                                            val count = filtered.toIntOrNull() ?: 1
+                                            val coerced = count.coerceIn(1, 10)
+                                            
+                                            val currentSize = multipleIntakes.size
+                                            if (coerced > currentSize) {
+                                                multipleIntakes = multipleIntakes + List(coerced - currentSize) { idx ->
+                                                    val realIdx = currentSize + idx
+                                                    val defaultTime = when (realIdx) {
+                                                        0 -> "08:00"
+                                                        1 -> "14:00"
+                                                        2 -> "20:00"
+                                                        3 -> "22:00"
+                                                        else -> "12:00"
+                                                    }
+                                                    IntakeItem(defaultTime, "1.0")
+                                                }
+                                            } else if (coerced < currentSize) {
+                                                multipleIntakes = multipleIntakes.take(coerced)
+                                            }
+                                        },
+                                        label = { Text("Количество приемов в день") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth().testTag("medicine_details_num_intakes")
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("Режим приемов и дозировки напоминаний:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        multipleIntakes.forEachIndexed { index, intake ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                val pickerTime = intake.time
+                                                val (h, m) = remember(pickerTime) {
+                                                    val parts = pickerTime.split(":")
+                                                    val hVal = parts.getOrNull(0)?.toIntOrNull() ?: 8
+                                                    val mVal = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                                    hVal to mVal
+                                                }
+                                                val rowContext = LocalContext.current
+                                                
+                                                Button(
+                                                    onClick = {
+                                                        android.app.TimePickerDialog(
+                                                            rowContext,
+                                                            { _, hour, minute ->
+                                                                val newTime = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
+                                                                multipleIntakes = multipleIntakes.mapIndexed { idx, item ->
+                                                                    if (idx == index) item.copy(time = newTime) else item
+                                                                }
+                                                            },
+                                                            h,
+                                                            m,
+                                                            true
+                                                        ).show()
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                                                    modifier = Modifier.weight(1.1f),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(14.dp), tint = MintPrimary)
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Прием ${index + 1}: ${intake.time}", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                }
+                                                
+                                                OutlinedTextField(
+                                                    value = intake.dosage,
+                                                    onValueChange = { dosageVal ->
+                                                        multipleIntakes = multipleIntakes.mapIndexed { idx, item ->
+                                                            if (idx == index) item.copy(dosage = dosageVal) else item
+                                                        }
+                                                    },
+                                                    label = { Text("Доза") },
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                                    singleLine = true,
+                                                    modifier = Modifier.weight(0.9f)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2902,8 +3015,16 @@ fun MedicineDetailsDialog(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Button(
                                         onClick = {
-                                            val dosage = inputPillboxDosage.toDoubleOrNull() ?: 1.0
-                                            onAddToPillbox(selectedPillboxId, dosage, inputPillboxTime, inputPillboxPeriodicity)
+                                            if (isMultipleTimesADay) {
+                                                val intakesList = multipleIntakes.map {
+                                                    val dosage = it.dosage.toDoubleOrNull() ?: 1.0
+                                                    dosage to it.time
+                                                }
+                                                onAddToPillbox(selectedPillboxId, intakesList, 1)
+                                            } else {
+                                                val dosage = inputPillboxDosage.toDoubleOrNull() ?: 1.0
+                                                onAddToPillbox(selectedPillboxId, listOf(dosage to inputPillboxTime), inputPillboxPeriodicity)
+                                            }
                                             showAddToPillboxForm = false
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = MintPrimary),
@@ -5573,8 +5694,10 @@ fun PillboxScreen(viewModel: MainViewModel) {
         AddPillboxEntryDialog(
             cabinetMedicines = cabinetMedicines,
             onDismiss = { showAddPillboxEntryDialogForId = null },
-            onSave = { medicineName, dosage, preferredTime, periodicityDays ->
-                viewModel.addPillboxEntry(targetPillboxId, medicineName, dosage, preferredTime, periodicityDays)
+            onSave = { medicineName, intakes, periodicityDays ->
+                intakes.forEach { (dosage, preferredTime) ->
+                    viewModel.addPillboxEntry(targetPillboxId, medicineName, dosage, preferredTime, periodicityDays)
+                }
                 showAddPillboxEntryDialogForId = null
             }
         )
@@ -5884,7 +6007,7 @@ fun PillboxTimeGroupCard(
 fun AddPillboxEntryDialog(
     cabinetMedicines: List<com.example.data.Medicine>,
     onDismiss: () -> Unit,
-    onSave: (medicineName: String, dosage: Double, preferredTime: String, periodicityDays: Int) -> Unit
+    onSave: (medicineName: String, intakes: List<Pair<Double, String>>, periodicityDays: Int) -> Unit
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
@@ -5893,6 +6016,17 @@ fun AddPillboxEntryDialog(
     var dosageStr by remember { mutableStateOf("1.0") }
     var preferredTime by remember { mutableStateOf("08:00") }
     var periodicityDays by remember { mutableStateOf(1) }
+    
+    var isMultipleTimesADay by remember { mutableStateOf(false) }
+    var numIntakesStr by remember { mutableStateOf("2") }
+    var multipleIntakes by remember {
+        mutableStateOf(
+            listOf(
+                IntakeItem("08:00", "1.0"),
+                IntakeItem("20:00", "1.0")
+            )
+        )
+    }
 
     val (initHour, initMinute) = remember(preferredTime) {
         val parts = preferredTime.split(":")
@@ -6059,65 +6193,67 @@ fun AddPillboxEntryDialog(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
 
-                    OutlinedTextField(
-                        value = dosageStr,
-                        onValueChange = { dosageStr = it },
-                        label = { Text("Разовая доза (шт. / таблеток)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.fillMaxWidth().testTag("pillbox_dosage_input")
-                    )
+                    if (!isMultipleTimesADay) {
+                        OutlinedTextField(
+                            value = dosageStr,
+                            onValueChange = { dosageStr = it },
+                            label = { Text("Разовая доза (шт. / таблеток)") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth().testTag("pillbox_dosage_input")
+                        )
 
-                    Text(
-                        "Время приема:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                        Text(
+                            "Время приема:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                            .clickable { timePickerDialog.show() }
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                            .testTag("pillbox_time_picker_trigger"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
                         Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                                .clickable { timePickerDialog.show() }
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .testTag("pillbox_time_picker_trigger"),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.CalendarMonth,
-                                contentDescription = null,
-                                tint = MintPrimary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = "Выбранное время",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = null,
+                                    tint = MintPrimary,
+                                    modifier = Modifier.size(24.dp)
                                 )
-                                Text(
-                                    text = preferredTime,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MintDarkText
-                                )
+                                Column {
+                                    Text(
+                                        text = "Выбранное время",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = preferredTime,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MintDarkText
+                                    )
+                                }
                             }
-                        }
-                        Button(
-                            onClick = { timePickerDialog.show() },
-                            colors = ButtonDefaults.buttonColors(containerColor = MintPrimary),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                        ) {
-                            Text("Выбрать", style = MaterialTheme.typography.labelMedium)
+                            Button(
+                                onClick = { timePickerDialog.show() },
+                                colors = ButtonDefaults.buttonColors(containerColor = MintPrimary),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text("Выбрать", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
 
@@ -6130,26 +6266,134 @@ fun AddPillboxEntryDialog(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         val cycles = listOf(
                             1 to "Каждый день",
                             2 to "Через день",
-                            3 to "Раз в 3 дня"
+                            3 to "Раз в 3 дня",
+                            4 to "Несколько раз в день"
                         )
                         cycles.forEach { (days, label) ->
-                            val isSel = periodicityDays == days
+                            val isSel = (days == 4 && isMultipleTimesADay) || (days != 4 && !isMultipleTimesADay && periodicityDays == days)
                             Button(
-                                onClick = { periodicityDays = days },
+                                onClick = {
+                                    if (days == 4) {
+                                        isMultipleTimesADay = true
+                                    } else {
+                                        isMultipleTimesADay = false
+                                        periodicityDays = days
+                                    }
+                                },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isSel) MintPrimary else MaterialTheme.colorScheme.secondaryContainer,
                                     contentColor = if (isSel) Color.White else MaterialTheme.colorScheme.onSecondaryContainer
                                 ),
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                Text(label, fontSize = 7.sp, maxLines = 1)
+                            }
+                        }
+                    }
+
+                    if (isMultipleTimesADay) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = numIntakesStr,
+                            onValueChange = { input ->
+                                val filtered = input.filter { it.isDigit() }
+                                numIntakesStr = filtered
+                                val count = filtered.toIntOrNull() ?: 1
+                                val coerced = count.coerceIn(1, 10)
+                                
+                                val currentSize = multipleIntakes.size
+                                if (coerced > currentSize) {
+                                    multipleIntakes = multipleIntakes + List(coerced - currentSize) { idx ->
+                                        val realIdx = currentSize + idx
+                                        val defaultTime = when (realIdx) {
+                                            0 -> "08:00"
+                                            1 -> "14:00"
+                                            2 -> "20:00"
+                                            3 -> "22:00"
+                                            else -> "12:00"
+                                        }
+                                        IntakeItem(defaultTime, "1.0")
+                                    }
+                                } else if (coerced < currentSize) {
+                                    multipleIntakes = multipleIntakes.take(coerced)
+                                }
+                            },
+                            label = { Text("Количество приемов в день") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("add_pillbox_num_intakes")
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Режим приемов и дозировки напоминаний:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            multipleIntakes.forEachIndexed { index, intake ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val pickerTime = intake.time
+                                    val (h, m) = remember(pickerTime) {
+                                        val parts = pickerTime.split(":")
+                                        val hVal = parts.getOrNull(0)?.toIntOrNull() ?: 8
+                                        val mVal = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                        hVal to mVal
+                                    }
+                                    val rowContext = LocalContext.current
+                                    
+                                    Button(
+                                        onClick = {
+                                            android.app.TimePickerDialog(
+                                                rowContext,
+                                                { _, hour, minute ->
+                                                    val newTime = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
+                                                    multipleIntakes = multipleIntakes.mapIndexed { idx, item ->
+                                                        if (idx == index) item.copy(time = newTime) else item
+                                                    }
+                                                },
+                                                h,
+                                                m,
+                                                true
+                                            ).show()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                                        modifier = Modifier.weight(1.1f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp), tint = MintPrimary)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Прием ${index + 1}: ${intake.time}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
+                                    
+                                    OutlinedTextField(
+                                        value = intake.dosage,
+                                        onValueChange = { dosageVal ->
+                                            multipleIntakes = multipleIntakes.mapIndexed { idx, item ->
+                                                if (idx == index) item.copy(dosage = dosageVal) else item
+                                            }
+                                        },
+                                        label = { Text("Доза") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        singleLine = true,
+                                        modifier = Modifier.weight(0.9f)
+                                    )
+                                }
                             }
                         }
                     }
@@ -6160,8 +6404,16 @@ fun AddPillboxEntryDialog(
             if (selectedMedicineName.isNotEmpty()) {
                 Button(
                     onClick = {
-                        val dosage = dosageStr.toDoubleOrNull() ?: 1.0
-                        onSave(selectedMedicineName, dosage, preferredTime.trim(), periodicityDays)
+                        if (isMultipleTimesADay) {
+                            val intakesList = multipleIntakes.map {
+                                val dosage = it.dosage.toDoubleOrNull() ?: 1.0
+                                dosage to it.time
+                            }
+                            onSave(selectedMedicineName, intakesList, 1)
+                        } else {
+                            val dosage = dosageStr.toDoubleOrNull() ?: 1.0
+                            onSave(selectedMedicineName, listOf(dosage to preferredTime.trim()), periodicityDays)
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MintPrimary),
                     modifier = Modifier.testTag("pillbox_save_confirm")
