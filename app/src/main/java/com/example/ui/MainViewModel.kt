@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -1037,6 +1038,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- PILLBOX STATE & METHODS ---
     val pillboxes: StateFlow<List<com.example.data.Pillbox>> = repository.allPillboxes
+        .map { list ->
+            val now = System.currentTimeMillis()
+            val expired = list.filter { it.durationDays > 0 && (now - it.createdAt) > it.durationDays * 24L * 60 * 60 * 1000L }
+            if (expired.isNotEmpty()) {
+                viewModelScope.launch {
+                    expired.forEach { p ->
+                        deletePillbox(p)
+                    }
+                }
+            }
+            list.filter { it !in expired }
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -1050,15 +1063,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList()
         )
 
-    fun createPillbox(name: String) {
+    fun createPillbox(name: String, durationDays: Int = 0) {
         viewModelScope.launch {
-            repository.insertPillbox(com.example.data.Pillbox(name = name))
+            repository.insertPillbox(com.example.data.Pillbox(name = name, durationDays = durationDays, createdAt = System.currentTimeMillis()))
         }
     }
 
-    fun renamePillbox(pillbox: com.example.data.Pillbox, newName: String) {
+    fun renamePillbox(pillbox: com.example.data.Pillbox, newName: String, durationDays: Int) {
         viewModelScope.launch {
-            repository.updatePillbox(pillbox.copy(name = newName))
+            repository.updatePillbox(pillbox.copy(name = newName, durationDays = durationDays))
+        }
+    }
+
+    fun selectMedicineByName(name: String) {
+        val med = medicines.value.find { it.name.trim().equals(name.trim(), ignoreCase = true) }
+        if (med != null) {
+            selectMedicine(med)
+        } else {
+            showInAppAlert("Лекарство «$name» не найдено в вашей аптечке.")
         }
     }
 

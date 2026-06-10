@@ -5136,6 +5136,7 @@ fun PillboxScreen(viewModel: MainViewModel) {
     // Dialog state for creating a new Pillbox
     var showAddPillboxDialog by remember { mutableStateOf(false) }
     var newPillboxName by remember { mutableStateOf("") }
+    var newPillboxDurationStr by remember { mutableStateOf("") }
 
     // Target pillboxId when adding an entry
     var showAddPillboxEntryDialogForId by remember { mutableStateOf<Int?>(null) }
@@ -5143,6 +5144,7 @@ fun PillboxScreen(viewModel: MainViewModel) {
     // State for renaming a Pillbox
     var renamingPillbox by remember { mutableStateOf<com.example.data.Pillbox?>(null) }
     var renameInputName by remember { mutableStateOf("") }
+    var renameInputDurationStr by remember { mutableStateOf("") }
 
     val context = LocalContext.current
     var entryEditingTime by remember { mutableStateOf<com.example.data.PillboxEntry?>(null) }
@@ -5318,18 +5320,34 @@ fun PillboxScreen(viewModel: MainViewModel) {
                                         tint = MintPrimary,
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    Text(
-                                        text = pillbox.name,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MintDarkText,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Column {
+                                        Text(
+                                            text = pillbox.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MintDarkText,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        val remainingText = if (pillbox.durationDays > 0) {
+                                            val elapsedMs = System.currentTimeMillis() - pillbox.createdAt
+                                            val elapsedDays = (elapsedMs / (1000L * 60 * 60 * 24)).toInt()
+                                            val rem = (pillbox.durationDays - elapsedDays).coerceAtLeast(1)
+                                            "Курс: осталось $rem из ${pillbox.durationDays} дн."
+                                        } else {
+                                            "Бессрочный курс"
+                                        }
+                                        Text(
+                                            text = remainingText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     IconButton(
                                         onClick = {
                                             renamingPillbox = pillbox
                                             renameInputName = pillbox.name
+                                            renameInputDurationStr = if (pillbox.durationDays > 0) pillbox.durationDays.toString() else ""
                                         },
                                         modifier = Modifier.size(28.dp).testTag("rename_pillbox_btn_${pillbox.id}")
                                     ) {
@@ -5429,7 +5447,8 @@ fun PillboxScreen(viewModel: MainViewModel) {
                                         onTakeGroup = { viewModel.confirmGroupedPillboxIntake(entriesInSlot) },
                                         onDeleteEntry = { entry -> viewModel.deletePillboxEntry(entry) },
                                         onEditEntryTime = { entry -> entryEditingTime = entry },
-                                        onEditGroupTime = { groupEditingTimeEntries = entriesInSlot }
+                                        onEditGroupTime = { groupEditingTimeEntries = entriesInSlot },
+                                        onMedicineClick = { medicineName -> viewModel.selectMedicineByName(medicineName) }
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                 }
@@ -5447,20 +5466,38 @@ fun PillboxScreen(viewModel: MainViewModel) {
             onDismissRequest = { showAddPillboxDialog = false },
             title = { Text("Новая таблетница", fontWeight = FontWeight.Bold) },
             text = {
-                OutlinedTextField(
-                    value = newPillboxName,
-                    onValueChange = { newPillboxName = it },
-                    label = { Text("Название таблетницы") },
-                    singleLine = true,
-                    placeholder = { Text("например: Утренняя, Для поездки") },
-                    modifier = Modifier.fillMaxWidth().testTag("new_pillbox_name_input")
-                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newPillboxName,
+                        onValueChange = { newPillboxName = it },
+                        label = { Text("Название таблетницы") },
+                        singleLine = true,
+                        placeholder = { Text("например: Утренняя, Для поездки") },
+                        modifier = Modifier.fillMaxWidth().testTag("new_pillbox_name_input")
+                    )
+                    OutlinedTextField(
+                        value = newPillboxDurationStr,
+                        onValueChange = { newPillboxDurationStr = it.filter { char -> char.isDigit() } },
+                        label = { Text("Длительность курса (дней)") },
+                        singleLine = true,
+                        placeholder = { Text("Оставьте пустым для бессрочного") },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("new_pillbox_duration_input")
+                    )
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         if (newPillboxName.isNotBlank()) {
-                            viewModel.createPillbox(newPillboxName.trim())
+                            val duration = newPillboxDurationStr.toIntOrNull() ?: 0
+                            viewModel.createPillbox(newPillboxName.trim(), duration)
+                            newPillboxDurationStr = ""
                             showAddPillboxDialog = false
                         }
                     },
@@ -5482,21 +5519,38 @@ fun PillboxScreen(viewModel: MainViewModel) {
         val currentPillbox = renamingPillbox!!
         AlertDialog(
             onDismissRequest = { renamingPillbox = null },
-            title = { Text("Переименовать таблетницу", fontWeight = FontWeight.Bold) },
+            title = { Text("Редактировать таблетницу", fontWeight = FontWeight.Bold) },
             text = {
-                OutlinedTextField(
-                    value = renameInputName,
-                    onValueChange = { renameInputName = it },
-                    label = { Text("Новое название") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("rename_pillbox_input")
-                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = renameInputName,
+                        onValueChange = { renameInputName = it },
+                        label = { Text("Название таблетницы") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("rename_pillbox_input")
+                    )
+                    OutlinedTextField(
+                        value = renameInputDurationStr,
+                        onValueChange = { renameInputDurationStr = it.filter { char -> char.isDigit() } },
+                        label = { Text("Длительность курса (дней)") },
+                        singleLine = true,
+                        placeholder = { Text("Оставьте пустым для бессрочного") },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("rename_pillbox_duration_input")
+                    )
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         if (renameInputName.isNotBlank()) {
-                            viewModel.renamePillbox(currentPillbox, renameInputName.trim())
+                            val duration = renameInputDurationStr.toIntOrNull() ?: 0
+                            viewModel.renamePillbox(currentPillbox, renameInputName.trim(), duration)
                             renamingPillbox = null
                         }
                     },
@@ -5531,7 +5585,8 @@ fun PillboxScreen(viewModel: MainViewModel) {
 fun PillboxEntryCard(
     entry: com.example.data.PillboxEntry,
     onTake: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onMedicineClick: (String) -> Unit = {}
 ) {
     val limitText = when (entry.periodicityDays) {
         1 -> "Каждый день"
@@ -5562,13 +5617,29 @@ fun PillboxEntryCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = entry.medicineName,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MintDarkText
-                    )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onMedicineClick(entry.medicineName) }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = entry.medicineName,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MintPrimary,
+                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Подробнее о лекарстве",
+                            tint = MintPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "$limitText в ${entry.preferredTime}",
@@ -5637,7 +5708,8 @@ fun PillboxTimeGroupCard(
     onTakeGroup: () -> Unit,
     onDeleteEntry: (com.example.data.PillboxEntry) -> Unit,
     onEditEntryTime: (com.example.data.PillboxEntry) -> Unit,
-    onEditGroupTime: () -> Unit
+    onEditGroupTime: () -> Unit,
+    onMedicineClick: (String) -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -5720,12 +5792,28 @@ fun PillboxTimeGroupCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = entry.medicineName,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .clickable { onMedicineClick(entry.medicineName) }
+                                .padding(vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = entry.medicineName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MintPrimary,
+                                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                                modifier = Modifier.testTag("pillbox_entry_title_${entry.id}")
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "Подробнее о лекарстве",
+                                tint = MintPrimary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

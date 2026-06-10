@@ -8,5 +8,7 @@ import java.io.Serializable
 data class Pillbox(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
-    val notificationsEnabled: Boolean = true
+    val notificationsEnabled: Boolean = true,
+    val durationDays: Int = 0,
+    val createdAt: Long = System.currentTimeMillis()
 ) : Serializable

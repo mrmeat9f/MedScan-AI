@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Medicine::class, PillboxEntry::class, Pillbox::class, IntakeLog::class], version = 7, exportSchema = false)
+@Database(entities = [Medicine::class, PillboxEntry::class, Pillbox::class, IntakeLog::class], version = 8, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun medicineDao(): MedicineDao
     abstract fun pillboxDao(): PillboxDao
@@ -27,6 +27,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                try {
+                    db.execSQL("ALTER TABLE pillboxes ADD COLUMN durationDays INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE pillboxes ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -34,7 +45,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "aptechka_database"
                 )
-                .addMigrations(MIGRATION_6_7)
+                .addMigrations(MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
