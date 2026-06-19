@@ -126,6 +126,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -5270,6 +5272,7 @@ fun PillboxScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     var entryEditingTime by remember { mutableStateOf<com.example.data.PillboxEntry?>(null) }
     var groupEditingTimeEntries by remember { mutableStateOf<List<com.example.data.PillboxEntry>?>(null) }
+    var expandedPillboxIds by remember { mutableStateOf(emptySet<Int>()) }
 
     if (entryEditingTime != null) {
         val entry = entryEditingTime!!
@@ -5413,6 +5416,7 @@ fun PillboxScreen(viewModel: MainViewModel) {
                 }
 
                 item {
+                    val isExpanded = expandedPillboxIds.contains(pillbox.id)
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -5435,34 +5439,55 @@ fun PillboxScreen(viewModel: MainViewModel) {
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Folder,
-                                        contentDescription = null,
-                                        tint = MintPrimary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Column {
-                                        Text(
-                                            text = pillbox.name,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MintDarkText,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .clickable {
+                                                expandedPillboxIds = if (isExpanded) {
+                                                    expandedPillboxIds - pillbox.id
+                                                } else {
+                                                    expandedPillboxIds + pillbox.id
+                                                }
+                                            }
+                                            .padding(vertical = 4.dp)
+                                            .weight(1f, fill = false)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                            contentDescription = if (isExpanded) "Свернуть" else "Развернуть",
+                                            tint = MintPrimary,
+                                            modifier = Modifier.size(24.dp)
                                         )
-                                        val remainingText = if (pillbox.durationDays > 0) {
-                                            val elapsedMs = System.currentTimeMillis() - pillbox.createdAt
-                                            val elapsedDays = (elapsedMs / (1000L * 60 * 60 * 24)).toInt()
-                                            val rem = (pillbox.durationDays - elapsedDays).coerceAtLeast(1)
-                                            "Курс: осталось $rem из ${pillbox.durationDays} дн."
-                                        } else {
-                                            "Бессрочный курс"
+                                        Icon(
+                                            imageVector = Icons.Default.Folder,
+                                            contentDescription = null,
+                                            tint = MintPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Column {
+                                            Text(
+                                                text = pillbox.name,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MintDarkText,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            val remainingText = if (pillbox.durationDays > 0) {
+                                                val elapsedMs = System.currentTimeMillis() - pillbox.createdAt
+                                                val elapsedDays = (elapsedMs / (1000L * 60 * 60 * 24)).toInt()
+                                                val rem = (pillbox.durationDays - elapsedDays).coerceAtLeast(1)
+                                                "Курс: осталось $rem из ${pillbox.durationDays} дн."
+                                            } else {
+                                                "Бессрочный курс"
+                                            }
+                                            Text(
+                                                text = remainingText,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
-                                        Text(
-                                            text = remainingText,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
                                     }
                                     IconButton(
                                         onClick = {
@@ -5508,70 +5533,74 @@ fun PillboxScreen(viewModel: MainViewModel) {
                                 }
                             }
 
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
+                            AnimatedVisibility(visible = isExpanded) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
 
-                            // Pillbox notification toggle bar
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (pillbox.notificationsEnabled) Icons.Default.Notifications else Icons.Default.NotificationsOff,
-                                        contentDescription = "Статус уведомлений",
-                                        tint = if (pillbox.notificationsEnabled) MintPrimary else MaterialTheme.colorScheme.outline,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = if (pillbox.notificationsEnabled) "Уведомления включены" else "Уведомления отключены",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = if (pillbox.notificationsEnabled) MintDarkText else MaterialTheme.colorScheme.onSurfaceVariant
+                                    // Pillbox notification toggle bar
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (pillbox.notificationsEnabled) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                                contentDescription = "Статус уведомлений",
+                                                tint = if (pillbox.notificationsEnabled) MintPrimary else MaterialTheme.colorScheme.outline,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = if (pillbox.notificationsEnabled) "Уведомления включены" else "Уведомления отключены",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = if (pillbox.notificationsEnabled) MintDarkText else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        androidx.compose.material3.Switch(
+                                            checked = pillbox.notificationsEnabled,
+                                            onCheckedChange = { viewModel.togglePillboxNotifications(pillbox) },
+                                            modifier = Modifier.testTag("pillbox_notifications_toggle_${pillbox.id}")
                                         )
                                     }
-                                }
-                                androidx.compose.material3.Switch(
-                                    checked = pillbox.notificationsEnabled,
-                                    onCheckedChange = { viewModel.togglePillboxNotifications(pillbox) },
-                                    modifier = Modifier.testTag("pillbox_notifications_toggle_${pillbox.id}")
-                                )
-                            }
 
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
 
-                            if (entriesForThisPillbox.isEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "В этой таблетнице нет лекарств.\nНажмите «+ Прием», чтобы добавить.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            } else {
-                                val groupedByTime = entriesForThisPillbox.groupBy { it.preferredTime }.toSortedMap()
-                                groupedByTime.forEach { (time, entriesInSlot) ->
-                                    PillboxTimeGroupCard(
-                                        time = time,
-                                        entries = entriesInSlot,
-                                        onTakeGroup = { viewModel.confirmGroupedPillboxIntake(entriesInSlot) },
-                                        onDeleteEntry = { entry -> viewModel.deletePillboxEntry(entry) },
-                                        onEditEntryTime = { entry -> entryEditingTime = entry },
-                                        onEditGroupTime = { groupEditingTimeEntries = entriesInSlot },
-                                        onMedicineClick = { medicineName -> viewModel.selectMedicineByName(medicineName) }
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
+                                    if (entriesForThisPillbox.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 12.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "В этой таблетнице нет лекарств.\nНажмите «+ Прием», чтобы добавить.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    } else {
+                                        val groupedByTime = entriesForThisPillbox.groupBy { it.preferredTime }.toSortedMap()
+                                        groupedByTime.forEach { (time, entriesInSlot) ->
+                                            PillboxTimeGroupCard(
+                                                time = time,
+                                                entries = entriesInSlot,
+                                                onTakeGroup = { viewModel.confirmGroupedPillboxIntake(entriesInSlot) },
+                                                onDeleteEntry = { entry -> viewModel.deletePillboxEntry(entry) },
+                                                onEditEntryTime = { entry -> entryEditingTime = entry },
+                                                onEditGroupTime = { groupEditingTimeEntries = entriesInSlot },
+                                                onMedicineClick = { medicineName -> viewModel.selectMedicineByName(medicineName) }
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -5704,6 +5733,14 @@ fun PillboxScreen(viewModel: MainViewModel) {
     }
 }
 
+private fun isTakenToday(lastTakenTimestamp: Long): Boolean {
+    if (lastTakenTimestamp <= 0L) return false
+    val calTaken = java.util.Calendar.getInstance().apply { timeInMillis = lastTakenTimestamp }
+    val calNow = java.util.Calendar.getInstance()
+    return calTaken.get(java.util.Calendar.YEAR) == calNow.get(java.util.Calendar.YEAR) &&
+           calTaken.get(java.util.Calendar.DAY_OF_YEAR) == calNow.get(java.util.Calendar.DAY_OF_YEAR)
+}
+
 @Composable
 fun PillboxEntryCard(
     entry: com.example.data.PillboxEntry,
@@ -5717,15 +5754,20 @@ fun PillboxEntryCard(
         else -> "Каждые ${entry.periodicityDays} дня"
     }
 
+    val takenToday = isTakenToday(entry.lastTakenTimestamp)
     val lastTakenStr = if (entry.lastTakenTimestamp > 0L) {
         val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru"))
-        "Принято: " + sdf.format(Date(entry.lastTakenTimestamp))
+        if (takenToday) {
+            "Принято сегодня в " + SimpleDateFormat("HH:mm", Locale("ru")).format(Date(entry.lastTakenTimestamp)) + " ✔️"
+        } else {
+            "Принято: " + sdf.format(Date(entry.lastTakenTimestamp))
+        }
     } else {
         "Приемов еще не было"
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().alpha(if (takenToday) 0.65f else 1f),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(12.dp),
@@ -5753,13 +5795,13 @@ fun PillboxEntryCard(
                             text = entry.medicineName,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MintPrimary,
-                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                            color = if (takenToday) MaterialTheme.colorScheme.onSurfaceVariant else MintPrimary,
+                            textDecoration = if (takenToday) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.Underline
                         )
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = "Подробнее о лекарстве",
-                            tint = MintPrimary,
+                            tint = if (takenToday) MaterialTheme.colorScheme.onSurfaceVariant else MintPrimary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -5800,24 +5842,31 @@ fun PillboxEntryCard(
                     Text(
                         text = lastTakenStr,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        color = if (takenToday) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        fontWeight = if (takenToday) FontWeight.Bold else FontWeight.Normal
                     )
                 }
 
                 Button(
                     onClick = onTake,
-                    colors = ButtonDefaults.buttonColors(containerColor = MintPrimary),
+                    enabled = !takenToday,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (takenToday) MaterialTheme.colorScheme.secondaryContainer else MintPrimary,
+                        contentColor = if (takenToday) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        disabledContentColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
+                    ),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.testTag("took_pillbox_${entry.id}")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Я принял",
+                        imageVector = if (takenToday) Icons.Default.CheckCircle else Icons.Default.Check,
+                        contentDescription = if (takenToday) "Принято" else "Я принял",
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Я принял", style = MaterialTheme.typography.labelLarge)
+                    Text(if (takenToday) "Принято" else "Я принял", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -5834,6 +5883,8 @@ fun PillboxTimeGroupCard(
     onEditGroupTime: () -> Unit,
     onMedicineClick: (String) -> Unit = {}
 ) {
+    val allTaken = entries.all { isTakenToday(it.lastTakenTimestamp) }
+
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -5878,18 +5929,24 @@ fun PillboxTimeGroupCard(
                 
                 Button(
                     onClick = onTakeGroup,
-                    colors = ButtonDefaults.buttonColors(containerColor = MintPrimary),
+                    enabled = !allTaken,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (allTaken) MaterialTheme.colorScheme.secondaryContainer else MintPrimary,
+                        contentColor = if (allTaken) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        disabledContentColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
+                    ),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.testTag("took_pillbox_group_$time")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Я принял всё",
+                        imageVector = if (allTaken) Icons.Default.CheckCircle else Icons.Default.Check,
+                        contentDescription = if (allTaken) "Принято" else "Я принял всё",
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Я принял", style = MaterialTheme.typography.labelLarge)
+                    Text(if (allTaken) "Принято" else "Я принял", style = MaterialTheme.typography.labelLarge)
                 }
             }
 
@@ -5902,15 +5959,20 @@ fun PillboxTimeGroupCard(
                     else -> "Каждые ${entry.periodicityDays} дня"
                 }
 
+                val takenToday = isTakenToday(entry.lastTakenTimestamp)
                 val lastTakenStr = if (entry.lastTakenTimestamp > 0L) {
                     val sdf = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale("ru"))
-                    "Принято: " + sdf.format(java.util.Date(entry.lastTakenTimestamp))
+                    if (takenToday) {
+                        "Принято сегодня в " + java.text.SimpleDateFormat("HH:mm", java.util.Locale("ru")).format(java.util.Date(entry.lastTakenTimestamp)) + " ✔️"
+                    } else {
+                        "Принято: " + sdf.format(java.util.Date(entry.lastTakenTimestamp))
+                    }
                 } else {
                     "Приемов еще не было"
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().alpha(if (takenToday) 0.65f else 1f),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -5926,14 +5988,14 @@ fun PillboxTimeGroupCard(
                                 text = entry.medicineName,
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = MintPrimary,
-                                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                                color = if (takenToday) MaterialTheme.colorScheme.onSurfaceVariant else MintPrimary,
+                                textDecoration = if (takenToday) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.Underline,
                                 modifier = Modifier.testTag("pillbox_entry_title_${entry.id}")
                             )
                             Icon(
                                 imageVector = Icons.Default.Info,
                                 contentDescription = "Подробнее о лекарстве",
-                                tint = MintPrimary,
+                                tint = if (takenToday) MaterialTheme.colorScheme.onSurfaceVariant else MintPrimary,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -5956,8 +6018,8 @@ fun PillboxTimeGroupCard(
                         Text(
                             text = lastTakenStr,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                            fontWeight = FontWeight.Medium
+                            color = if (takenToday) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            fontWeight = if (takenToday) FontWeight.Bold else FontWeight.Medium
                         )
                     }
 

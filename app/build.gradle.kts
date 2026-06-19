@@ -461,6 +461,20 @@ tasks.named("preBuild") {
     dependsOn("overwriteLegacyIcons")
 }
 
+tasks.register<Copy>("copyApkToVisible") {
+    from("../.build-outputs/app-debug.apk")
+    from("build/outputs/apk/debug/app-debug.apk")
+    into("../Compiled_APK")
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
+afterEvaluate {
+    tasks.named("assembleDebug") {
+        finalizedBy("copyApkToVisible")
+    }
+}
+
+
 
 
 

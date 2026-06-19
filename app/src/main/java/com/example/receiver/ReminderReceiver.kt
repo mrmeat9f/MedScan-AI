@@ -74,10 +74,14 @@ class ReminderReceiver : BroadcastReceiver() {
                 val disabledPillboxIds = allPillboxes.filter { !it.notificationsEnabled }.map { it.id }.toSet()
                 
                 // Filter matching entries
-                val matchingEntries = allEntries.filter { it.preferredTime == timeStr && it.pillboxId !in disabledPillboxIds }
+                val matchingEntries = allEntries.filter { 
+                    it.preferredTime == timeStr && 
+                    it.pillboxId !in disabledPillboxIds &&
+                    !isTakenToday(it.lastTakenTimestamp)
+                }
                 
                 if (matchingEntries.isEmpty()) {
-                    Log.d("ReminderReceiver", "All matching entries are in a disabled pillbox or don't exist. Skipping visual notification.")
+                    Log.d("ReminderReceiver", "All matching entries are in a disabled pillbox, don't exist, or already taken today. Skipping visual notification.")
                     if (entryId != -1) {
                         schedulePillReminder(context, entryId, medicineName, dosage, timeStr, periodicityDays)
                     }
@@ -153,6 +157,14 @@ class ReminderReceiver : BroadcastReceiver() {
                 pendingResult.finish()
             }
         }
+    }
+
+    private fun isTakenToday(lastTakenTimestamp: Long): Boolean {
+        if (lastTakenTimestamp <= 0L) return false
+        val calTaken = Calendar.getInstance().apply { timeInMillis = lastTakenTimestamp }
+        val calNow = Calendar.getInstance()
+        return calTaken.get(Calendar.YEAR) == calNow.get(Calendar.YEAR) &&
+               calTaken.get(Calendar.DAY_OF_YEAR) == calNow.get(Calendar.DAY_OF_YEAR)
     }
 
     companion object {
